@@ -244,6 +244,7 @@ def panel_helicorder(nslc: str, ring: RingBuffer) -> dict | None:
     sr, data = ring.snapshot(nslc, HELICORDER_WIN_S)
     if not data:
         return None
+    data = apply_filter(data, sr, nslc)
     # Downsample to a fixed number of points by simple block-mean.
     if HAS_SCIPY and len(data) > HELICORDER_POINTS:
         arr = np.asarray(data, dtype=np.float32)
@@ -265,6 +266,7 @@ def panel_raw_scope(nslc: str, ring: RingBuffer) -> dict | None:
     sr, data = ring.snapshot(nslc, RAW_SCOPE_WIN_S)
     if not data:
         return None
+    data = apply_filter(data, sr, nslc)
     if HAS_SCIPY and len(data) > RAW_SCOPE_POINTS:
         arr = np.asarray(data, dtype=np.float32)
         ds = scipy_signal.decimate(
@@ -287,6 +289,7 @@ def panel_spectrogram(nslc: str, ring: RingBuffer) -> dict | None:
     sr, data = ring.snapshot(nslc, SPECTROGRAM_WIN_S)
     if not data or sr <= 0 or len(data) < SPECTROGRAM_NPERSEG:
         return None
+    data = apply_filter(data, sr, nslc)
     arr = np.asarray(data, dtype=np.float32)
     # Single-segment Welch is equivalent to the latest STFT column.
     f, pxx = scipy_signal.welch(
@@ -375,6 +378,7 @@ def panel_sta_lta(nslc: str, ring: RingBuffer) -> dict | None:
     lta_n = max(sta_n + 1, int(LTA_WIN_S * sr))
     if len(data) < lta_n + 1:
         return None
+    data = apply_filter(data, sr, nslc)
     arr = np.abs(np.asarray(data, dtype=np.float32))
     # Rolling sums via cumsum.
     cs = np.cumsum(np.concatenate([[0.0], arr]))
@@ -417,6 +421,43 @@ PANELS = {
 
 _subs_lock = threading.Lock()
 _subscriptions: Dict[str, Set[str]] = defaultdict(set)  # station -> set of panel ids
+_filters: Dict[str, dict] = {}                          # station -> filter spec
+
+
+def apply_filter(data: list, sr: float, nslc: str) -> list:
+    """Apply the active filter (if any) for this station to `data`.
+
+    Filter spec shape: {"kind": "bandpass"|"highpass"|"lowpass"|"none",
+                        "low": Hz, "high": Hz}
+    Returns the filtered samples (or the originals if no filter active /
+    scipy missing / window too short). Same length as input."""
+    if not HAS_SCIPY or sr <= 0 or len(data) < 32:
+        return data
+    spec = _filters.get(nslc)
+    if not spec or spec.get("kind", "none") == "none":
+        return data
+    nyq = sr / 2
+    arr = np.asarray(data, dtype=np.float32)
+    try:
+        if spec["kind"] == "bandpass":
+            lo = max(1e-3, float(spec["low"])) / nyq
+            hi = min(0.999, float(spec["high"]) / nyq)
+            if lo >= hi:
+                return data
+            sos = scipy_signal.butter(4, [lo, hi], btype="band", output="sos")
+        elif spec["kind"] == "highpass":
+            hi = max(1e-3, float(spec["low"])) / nyq
+            sos = scipy_signal.butter(4, hi, btype="high", output="sos")
+        elif spec["kind"] == "lowpass":
+            lo = min(0.999, float(spec["high"]) / nyq)
+            sos = scipy_signal.butter(4, lo, btype="low", output="sos")
+        else:
+            return data
+        out = scipy_signal.sosfiltfilt(sos, arr)
+    except Exception as e:
+        log(f"filter({nslc}) failed: {e!r}")
+        return data
+    return out.tolist()
 
 
 # ── SeedLink ingestion (real mode) ─────────────────────────────────────────
@@ -720,7 +761,16 @@ def cmd_loop(sl_router) -> None:
         elif op == "unsubscribe":
             with _subs_lock:
                 _subscriptions.pop(station, None)
+                _filters.pop(station, None)
             log(f"-sub {station}")
+        elif op == "filter":
+            spec = msg.get("spec") or {"kind": "none"}
+            with _subs_lock:
+                _filters[station] = spec
+            log(f"filter {station} = {spec}")
+            # Don't trigger a SeedLink restart for a filter change — it
+            # only affects panel computation.
+            continue
         else:
             continue
         # Recompute SeedLink stream sets from current subscriptions.

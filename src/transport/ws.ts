@@ -63,4 +63,8 @@ export class TremiomClient {
   unsubscribe(station: string): void {
     this.send({ op: 'unsubscribe', station });
   }
+
+  setFilter(station: string, spec: { kind: string; low?: number; high?: number }): void {
+    this.send({ op: 'filter', station, spec });
+  }
 }

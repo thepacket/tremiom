@@ -633,6 +633,8 @@ wss.on('connection', (ws) => {
     } else if (msg.op === 'unsubscribe') {
       sub.stations.delete(msg.station);
       tellWorker({ op: 'unsubscribe', station: msg.station });
+    } else if (msg.op === 'filter') {
+      tellWorker({ op: 'filter', station: msg.station, spec: msg.spec });
     }
   });
 

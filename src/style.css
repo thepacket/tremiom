@@ -326,6 +326,18 @@ html, body, #app {
 }
 .station-browse:hover { border-color: var(--accent); color: var(--accent); }
 
+.filter-picker { display: inline-flex; align-items: center; }
+.filter-select {
+  background: #1a1a1a;
+  color: var(--fg);
+  border: 1px solid var(--panel-border);
+  border-radius: 3px;
+  padding: 2px 6px;
+  font: inherit;
+  font-size: 12px;
+}
+.filter-select:focus { outline: none; border-color: var(--accent); }
+
 .modal-backdrop {
   position: fixed;
   inset: 0;

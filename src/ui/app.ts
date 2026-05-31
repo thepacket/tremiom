@@ -4,6 +4,8 @@ import { resetDrum, setDrumOverlays } from '../panels/drum';
 import { TremiomClient } from '../transport/ws';
 import { DEFAULT_STATION, STATION_PRESETS } from '../data/stations';
 import { mountStationPicker } from './station-picker';
+import { mountFilterPicker } from './filter-picker';
+import { DEFAULT_FILTER, type FilterSpec } from '../data/filters';
 import { mountEventList } from './event-list';
 import { mountWorldMap } from './world-map';
 import { mountRecordSection } from './record-section';
@@ -23,6 +25,8 @@ export function mountApp(root: HTMLElement, version: string): void {
     <span class="muted">v${version}</span>
     <span class="muted">station:</span>
     <span id="picker-mount"></span>
+    <span class="muted">filter:</span>
+    <span id="filter-mount"></span>
     <button class="live-btn hidden" id="live-btn" title="Return to live mode">← Live</button>
     <span class="muted" id="conn">connecting…</span>
     <button class="settings-btn" id="settings-btn" title="Settings" aria-label="Settings">⚙</button>
@@ -44,6 +48,7 @@ export function mountApp(root: HTMLElement, version: string): void {
   let currentEventId: string | null = null;
   let firstFrameAt: number | null = null;
   const subscribedAt = Date.now();
+  let currentFilter: FilterSpec = DEFAULT_FILTER;
 
   // Drum overlay state: events from the latest USGS poll + the active
   // station's coords (when known). Seeded from the curated presets;
@@ -177,6 +182,15 @@ export function mountApp(root: HTMLElement, version: string): void {
     picker.setStation(next);
     refreshDrumOverlays();
     client.subscribe(currentStation, INITIAL_PANELS);
+    // Filters are keyed by station server-side, so re-apply the current
+    // selection for the new station.
+    if (currentFilter.kind !== 'none') {
+      client.setFilter(currentStation, {
+        kind: currentFilter.kind,
+        low:  currentFilter.low,
+        high: currentFilter.high,
+      });
+    }
     // Local first-frame timer for the new station.
     const subTimer = window.setInterval(() => {
       if (firstFrameAt !== null) { window.clearInterval(subTimer); return; }
@@ -207,6 +221,17 @@ export function mountApp(root: HTMLElement, version: string): void {
   // ── Station picker ──────────────────────────────────────────────────
   const pickerMount = document.getElementById('picker-mount')!;
   const picker = mountStationPicker(pickerMount, currentStation, switchStation);
+
+  // ── Filter picker ───────────────────────────────────────────────────
+  const filterMount = document.getElementById('filter-mount')!;
+  mountFilterPicker(filterMount, currentFilter, (spec) => {
+    currentFilter = spec;
+    client.setFilter(currentStation, {
+      kind: spec.kind,
+      low:  spec.low,
+      high: spec.high,
+    });
+  });
 
   // "← Live" button to leave event mode.
   document.getElementById('live-btn')?.addEventListener('click', () => {
