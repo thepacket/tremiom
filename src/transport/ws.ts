@@ -67,4 +67,8 @@ export class TremiomClient {
   setFilter(station: string, spec: { kind: string; low?: number; high?: number }): void {
     this.send({ op: 'filter', station, spec });
   }
+
+  setUnits(station: string, units: string): void {
+    this.send({ op: 'units', station, units });
+  }
 }

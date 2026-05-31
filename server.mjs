@@ -701,6 +701,8 @@ wss.on('connection', (ws) => {
       tellWorker({ op: 'unsubscribe', station: msg.station });
     } else if (msg.op === 'filter') {
       tellWorker({ op: 'filter', station: msg.station, spec: msg.spec });
+    } else if (msg.op === 'units') {
+      tellWorker({ op: 'units', station: msg.station, units: msg.units });
     }
   });
 

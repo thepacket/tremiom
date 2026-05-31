@@ -15,6 +15,7 @@ interface ThreeCompFrame {
   station: string;
   t: number;
   windowS: number;
+  unit?: string;
   components: Comp[];
 }
 
@@ -92,7 +93,8 @@ export const threeComp: PanelDef = {
       ctx.fillStyle = COLOR_LABEL;
       ctx.font = '10px ui-monospace, SFMono-Regular, Menlo, monospace';
       ctx.textAlign = 'right';
-      ctx.fillText(`±${fmtAmp(m)}`, pb.right - 4, laneTop + 3);
+      const unit = f.unit && f.unit !== 'counts' ? ` ${f.unit}` : '';
+      ctx.fillText(`±${fmtAmp(m)}${unit}`, pb.right - 4, laneTop + 3);
     });
 
     // Outer frame.

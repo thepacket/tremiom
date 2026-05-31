@@ -7,6 +7,7 @@ import { DEFAULT_STATION, STATION_PRESETS } from '../data/stations';
 import { mountStationPicker } from './station-picker';
 import { mountFilterPicker } from './filter-picker';
 import { DEFAULT_FILTER, type FilterSpec } from '../data/filters';
+import { mountUnitsPicker, DEFAULT_UNITS } from './units-picker';
 import { mountEventList } from './event-list';
 import { mountWorldMap } from './world-map';
 import { mountRecordSection } from './record-section';
@@ -28,6 +29,8 @@ export function mountApp(root: HTMLElement, version: string): void {
     <span id="picker-mount"></span>
     <span class="muted">filter:</span>
     <span id="filter-mount"></span>
+    <span class="muted">units:</span>
+    <span id="units-mount"></span>
     <span id="panel-picker-mount"></span>
     <button class="live-btn hidden" id="live-btn" title="Return to live mode">← Live</button>
     <span class="muted" id="conn">connecting…</span>
@@ -51,6 +54,7 @@ export function mountApp(root: HTMLElement, version: string): void {
   let firstFrameAt: number | null = null;
   const subscribedAt = Date.now();
   let currentFilter: FilterSpec = DEFAULT_FILTER;
+  let currentUnits: string = DEFAULT_UNITS;
 
   // Drum overlay state — events + station coords for predicted-arrival markers.
   let currentEvents: SeismicEvent[] = [];
@@ -201,6 +205,7 @@ export function mountApp(root: HTMLElement, version: string): void {
         high: currentFilter.high,
       });
     }
+    if (currentUnits !== 'counts') client.setUnits(currentStation, currentUnits);
     const subTimer = window.setInterval(() => {
       if (firstFrameAt !== null) { window.clearInterval(subTimer); return; }
       const conn = document.getElementById('conn');
@@ -239,6 +244,12 @@ export function mountApp(root: HTMLElement, version: string): void {
       low:  spec.low,
       high: spec.high,
     });
+  });
+
+  const unitsMount = document.getElementById('units-mount')!;
+  mountUnitsPicker(unitsMount, currentUnits, (units) => {
+    currentUnits = units;
+    client.setUnits(currentStation, units);
   });
 
   const panelPickerMount = document.getElementById('panel-picker-mount')!;

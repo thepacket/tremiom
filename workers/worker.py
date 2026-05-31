@@ -426,7 +426,7 @@ def panel_raw_scope(nslc: str, ring: RingBuffer) -> dict | None:
     sr, data = ring.snapshot(nslc, RAW_SCOPE_WIN_S)
     if not data:
         return None
-    data = apply_filter(data, sr, nslc)
+    data, unit_label = preprocess(data, sr, nslc)
     if HAS_SCIPY and len(data) > RAW_SCOPE_POINTS:
         arr = np.asarray(data, dtype=np.float32)
         ds = scipy_signal.decimate(
@@ -439,7 +439,7 @@ def panel_raw_scope(nslc: str, ring: RingBuffer) -> dict | None:
     return {
         "frame": "panel", "panel": "raw-scope",
         "station": nslc, "t": time.time(),
-        "sr": sr, "windowS": RAW_SCOPE_WIN_S, "data": out,
+        "sr": sr, "windowS": RAW_SCOPE_WIN_S, "unit": unit_label, "data": out,
     }
 
 
@@ -701,29 +701,34 @@ def panel_three_comp(nslc: str, ring: RingBuffer) -> dict | None:
         return None
 
     comps = []
+    unit_label = "counts"
     with _subs_lock:
         z_spec = _filters.get(nslc)
+        z_units = _units.get(nslc)
 
-    def decimate(d, sr):
+    def decimate(d):
         n = len(d)
         step = max(1, n // THREE_COMP_POINTS)
         return [float(v) for v in d[::step][:THREE_COMP_POINTS]]
 
     if z_data and sr_z > 0:
-        zf = apply_filter(z_data, sr_z, z_nslc)
-        comps.append({"label": f"{base}Z", "data": decimate(zf, sr_z)})
+        zf, unit_label = preprocess(z_data, sr_z, z_nslc)
+        comps.append({"label": f"{base}Z", "data": decimate(zf)})
     if pair is not None:
         n_suffix, e_suffix, sr_h, n_data, e_data = pair
         n_nslc = f"{net}.{sta}.{loc}.{base}{n_suffix}"
         e_nslc = f"{net}.{sta}.{loc}.{base}{e_suffix}"
+        # Horizontals inherit the Z channel's filter + units.
         with _subs_lock:
             if z_spec:
-                _filters[n_nslc] = z_spec
-                _filters[e_nslc] = z_spec
-        nf = apply_filter(n_data, sr_h, n_nslc)
-        ef = apply_filter(e_data, sr_h, e_nslc)
-        comps.append({"label": f"{base}{n_suffix}", "data": decimate(nf, sr_h)})
-        comps.append({"label": f"{base}{e_suffix}", "data": decimate(ef, sr_h)})
+                _filters[n_nslc] = z_spec; _filters[e_nslc] = z_spec
+            if z_units:
+                _units[n_nslc] = z_units; _units[e_nslc] = z_units
+        nf, ul = preprocess(n_data, sr_h, n_nslc)
+        ef, _  = preprocess(e_data, sr_h, e_nslc)
+        unit_label = ul
+        comps.append({"label": f"{base}{n_suffix}", "data": decimate(nf)})
+        comps.append({"label": f"{base}{e_suffix}", "data": decimate(ef)})
     if not comps:
         return None
     return {
@@ -732,6 +737,7 @@ def panel_three_comp(nslc: str, ring: RingBuffer) -> dict | None:
         "station": nslc,
         "t":       time.time(),
         "windowS": THREE_COMP_WIN_S,
+        "unit":    unit_label,
         "components": comps,
     }
 
@@ -839,6 +845,122 @@ PANELS["ppsd"] = panel_ppsd
 _subs_lock = threading.Lock()
 _subscriptions: Dict[str, Set[str]] = defaultdict(set)  # station -> set of panel ids
 _filters: Dict[str, dict] = {}                          # station -> filter spec
+_units:   Dict[str, str]  = {}                          # station -> output units
+
+# Output-unit options. "counts" = raw (no response removal). The rest
+# need the StationXML response, fetched lazily per station.
+UNIT_VEL   = "velocity"       # m/s   (output="VEL")
+UNIT_DISP  = "displacement"   # m     (output="DISP")
+UNIT_ACC   = "acceleration"   # m/s²  (output="ACC")
+UNIT_WA    = "wood-anderson"  # mm    (Wood-Anderson displacement, for ML)
+UNIT_LABELS = {
+    "counts": "counts", UNIT_VEL: "m/s", UNIT_DISP: "m",
+    UNIT_ACC: "m/s²", UNIT_WA: "mm (WA)",
+}
+
+# Per-station ObsPy Inventory cache. None = fetch attempted and failed
+# (so we don't retry every tick); absent = not yet fetched.
+_inv_lock = threading.Lock()
+_inventories: Dict[str, "object | None"] = {}
+
+# Wood-Anderson standard poles/zeros (gain 2080, damping 0.8, T0 0.8 s).
+_WA_PAZ = {
+    "poles": [-6.283 - 4.7124j, -6.283 + 4.7124j],
+    "zeros": [0j, 0j],
+    "gain": 1.0,
+    "sensitivity": 2080.0,
+}
+
+
+def _station_key(nslc: str) -> str:
+    """Inventory is keyed by NET.STA (one fetch covers all channels)."""
+    p = nslc.split(".")
+    return f"{p[0]}.{p[1]}" if len(p) >= 2 else nslc
+
+
+def fetch_inventory(nslc: str):
+    """Fetch + cache the response-level StationXML for this station.
+    Returns an ObsPy Inventory or None. Network call; call off the hot
+    path (it's invoked lazily from convert_units, guarded by the cache)."""
+    if not HAS_OBSPY:
+        return None
+    key = _station_key(nslc)
+    with _inv_lock:
+        if key in _inventories:
+            return _inventories[key]
+    if "SSL_CERT_FILE" not in os.environ:
+        try:
+            import certifi
+            os.environ["SSL_CERT_FILE"] = certifi.where()
+        except ImportError:
+            pass
+    inv = None
+    try:
+        from obspy.clients.fdsn import Client as FdsnClient
+        from obspy import UTCDateTime
+        net, sta = key.split(".")
+        # Derive the band+instrument code (e.g. "BH") from the channel so
+        # we only fetch the seismic broadband/short-period channels, and
+        # constrain to the currently-operating epoch (starttime=now) so
+        # we don't pull every historical channel epoch — that's the
+        # difference between ~3 channels and ~700, i.e. <2 s vs ~50 s.
+        cha = nslc.split(".")[3] if len(nslc.split(".")) >= 4 else "BH?"
+        band_inst = (cha[:2] + "?") if len(cha) >= 2 else "BH?"
+        now = UTCDateTime()
+        client = FdsnClient("IRIS", timeout=30)
+        inv = client.get_stations(network=net, station=sta,
+                                  channel=band_inst, starttime=now,
+                                  level="response")
+        log(f"inventory[{key}/{band_inst}]: fetched "
+            f"({len(inv.get_contents()['channels'])} channels)")
+    except Exception as e:
+        log(f"inventory[{key}]: fetch failed: {e!r}")
+        inv = None
+    with _inv_lock:
+        _inventories[key] = inv
+    return inv
+
+
+def convert_units(data: list, sr: float, nslc: str):
+    """Convert raw counts to the active physical units for this station.
+    Returns (data, unit_label). Falls back to ('counts') if units are
+    raw, ObsPy/inventory unavailable, or anything errors."""
+    units = _units.get(nslc, "counts")
+    if units == "counts" or not HAS_OBSPY or sr <= 0 or len(data) < 64:
+        return data, UNIT_LABELS.get(units, "counts")
+    inv = fetch_inventory(nslc)
+    if inv is None:
+        return data, "counts"   # response unavailable — show raw, labelled honestly
+    try:
+        from obspy import Trace, UTCDateTime
+        net, sta, loc, cha = nslc.split(".")
+        tr = Trace(data=np.asarray(data, dtype=np.float64))
+        tr.stats.network = net; tr.stats.station = sta
+        tr.stats.location = loc; tr.stats.channel = cha
+        tr.stats.sampling_rate = sr
+        tr.stats.starttime = UTCDateTime(time.time() - len(data) / sr)
+        tr.attach_response(inv)
+        pre_filt = [0.005, 0.01, 0.45 * sr, 0.5 * sr]
+        if units == UNIT_WA:
+            tr.remove_response(output="DISP", pre_filt=pre_filt, water_level=60)
+            tr.simulate(paz_simulate=_WA_PAZ)
+            tr.data = tr.data * 1000.0  # m → mm
+        else:
+            out = {UNIT_VEL: "VEL", UNIT_DISP: "DISP", UNIT_ACC: "ACC"}[units]
+            tr.remove_response(output=out, pre_filt=pre_filt, water_level=60)
+        return tr.data.tolist(), UNIT_LABELS[units]
+    except Exception as e:
+        log(f"convert_units({nslc}, {units}) failed: {e!r}")
+        return data, "counts"
+
+
+def preprocess(data: list, sr: float, nslc: str):
+    """Full waveform preprocessing for the time-domain panels: response
+    removal (units) first, then the active bandpass/lo/hi filter.
+    Returns (data, unit_label)."""
+    data, unit_label = convert_units(data, sr, nslc)
+    data = apply_filter(data, sr, nslc)
+    return data, unit_label
 
 
 def apply_filter(data: list, sr: float, nslc: str) -> list:
@@ -1188,6 +1310,18 @@ def cmd_loop(sl_router) -> None:
             log(f"filter {station} = {spec}")
             # Don't trigger a SeedLink restart for a filter change — it
             # only affects panel computation.
+            continue
+        elif op == "units":
+            units = msg.get("units") or "counts"
+            with _subs_lock:
+                _units[station] = units
+            log(f"units {station} = {units}")
+            # Warm the inventory cache off the hot path so the first
+            # converted frame doesn't block the panel loop on a network
+            # fetch. No-op for "counts".
+            if units != "counts":
+                threading.Thread(target=fetch_inventory, args=(station,),
+                                 name="inv-fetch", daemon=True).start()
             continue
         else:
             continue

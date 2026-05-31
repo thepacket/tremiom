@@ -14,7 +14,7 @@ export const rawScope: PanelDef = {
     ctx.fillStyle = '#0d0d0d';
     ctx.fillRect(0, 0, w, h);
 
-    const f = frame as { data?: number[]; windowS?: number } | null;
+    const f = frame as { data?: number[]; windowS?: number; unit?: string } | null;
     if (!f?.data?.length) {
       ctx.fillStyle = '#8a8a8a';
       ctx.font = '12px sans-serif';
@@ -36,7 +36,7 @@ export const rawScope: PanelDef = {
     const yMax = m + headroom;
     const yMin = -yMax;
 
-    drawYAxis(ctx, w, h, yMin, yMax, { unit: 'counts', ticks: 4 });
+    drawYAxis(ctx, w, h, yMin, yMax, { unit: f.unit || 'counts', ticks: 4 });
     drawTimeAxisSecondsBack(ctx, w, h, windowS, { ticks: 5 });
     drawFrame(ctx, w, h);
 
