@@ -396,6 +396,46 @@ async function handleEventDetail(req, res) {
   }
 }
 
+const magCache = new Map(); // eventId -> { ts, body }
+const MAG_TTL_MS = 30 * 60_000;
+
+async function handleEventMagnitude(req, res) {
+  if (req.method !== 'POST') { res.writeHead(405).end(); return; }
+  let body;
+  try { body = await readBody(req); } catch { res.writeHead(400).end(); return; }
+  let payload;
+  try { payload = JSON.parse(body); } catch {
+    res.writeHead(400, { 'content-type': 'application/json' });
+    res.end(JSON.stringify({ error: 'bad json' })); return;
+  }
+  const id = payload.eventId || '';
+  if (id && magCache.has(id)) {
+    const c = magCache.get(id);
+    if (Date.now() - c.ts < MAG_TTL_MS) {
+      res.writeHead(200, { 'content-type': 'application/json', 'x-cache': 'HIT' });
+      res.end(c.body); return;
+    }
+  }
+  const proc = spawn(PYTHON, ['workers/event_magnitude.py'], {
+    stdio: ['pipe', 'pipe', 'inherit'],
+  });
+  let stdout = '';
+  const timer = setTimeout(() => proc.kill('SIGTERM'), 120_000);
+  proc.stdout.on('data', (c) => { stdout += c.toString('utf8'); });
+  proc.on('exit', (code) => {
+    clearTimeout(timer);
+    if (code !== 0) {
+      res.writeHead(502, { 'content-type': 'application/json' });
+      res.end(JSON.stringify({ error: 'magnitude failed', code })); return;
+    }
+    if (id) magCache.set(id, { ts: Date.now(), body: stdout });
+    res.writeHead(200, { 'content-type': 'application/json', 'x-cache': 'MISS' });
+    res.end(stdout);
+  });
+  proc.stdin.write(body);
+  proc.stdin.end();
+}
+
 async function handleEventExport(req, res) {
   if (req.method !== 'POST') { res.writeHead(405).end(); return; }
   let body;
@@ -674,6 +714,10 @@ const httpServer = http.createServer((req, res) => {
   }
   if (req.url?.startsWith('/api/event/export')) {
     handleEventExport(req, res);
+    return;
+  }
+  if (req.url?.startsWith('/api/event/magnitude')) {
+    handleEventMagnitude(req, res);
     return;
   }
   if (req.url?.startsWith('/api/event/waveforms')) {

@@ -421,6 +421,23 @@ export function mountRecordSection(parent: HTMLElement): RecordSectionHandle {
     } catch { /* no mechanism / network blip — leave hidden */ }
   }
 
+  async function loadMagnitude(e: SeismicEvent, myToken: number): Promise<void> {
+    try {
+      const r = await fetch('/api/event/magnitude', {
+        method: 'POST', headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ eventId: e.id, lat: e.lat, lon: e.lon,
+                               depthKm: e.depthKm, timeMs: e.timeMs, nStations: 6 }),
+      });
+      if (!r.ok || myToken !== token || currentEvent?.id !== e.id) return;
+      const d = await r.json() as { ml?: number | null; n?: number; spread?: number };
+      if (myToken !== token || currentEvent?.id !== e.id) return;
+      if (d.ml != null) {
+        const base = `M${e.mag?.toFixed(1) ?? '?'} · ${e.place} · ${e.depthKm.toFixed(0)} km depth`;
+        info.textContent = `${base}  ·  tremiom ML ${d.ml.toFixed(1)} (±${d.spread ?? 0}, n=${d.n})`;
+      }
+    } catch { /* magnitude unavailable — leave the catalog mag */ }
+  }
+
   async function setEvent(e: SeismicEvent | null): Promise<void> {
     currentEvent = e;
     waveforms = null;
@@ -444,6 +461,7 @@ export function mountRecordSection(parent: HTMLElement): RecordSectionHandle {
     draw();
     const myToken = ++token;
     void loadMechanism(e, myToken);
+    void loadMagnitude(e, myToken);
     try {
       const w = await fetchEventWaveforms(e, { nStations: 6 });
       if (myToken !== token || currentEvent?.id !== e.id) return; // superseded
