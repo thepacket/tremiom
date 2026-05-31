@@ -16,6 +16,7 @@ import { mountDashboard, type DashboardHandle } from './dashboard';
 import { mountPanelPicker } from './panel-picker';
 import { mountAlertPicker } from './alert-picker';
 import { alerts } from './alerts';
+import { feedNetwork, resetNetwork, networkGroup } from '../panels/network';
 import type { SeismicEvent } from '../data/events';
 
 export function mountApp(root: HTMLElement, version: string): void {
@@ -117,12 +118,25 @@ export function mountApp(root: HTMLElement, version: string): void {
   // sta-lta when alerts are on (so triggers fire even if that panel
   // isn't displayed).
   function subscribedPanels(): string[] {
-    const set = new Set(activePanels);
+    // The 'network' panel is a client-side multi-station aggregator; it
+    // has no server-side per-currentStation computation, so exclude it
+    // from the main station's subscription (its data comes from the
+    // separate per-group-station rsam subscriptions below).
+    const set = new Set(activePanels.filter((p) => p !== 'network'));
     if (alerts.isEnabled()) set.add('sta-lta');
     return [...set];
   }
   function resubscribe() {
-    if (clientReady) client.subscribe(currentStation, subscribedPanels());
+    if (!clientReady) return;
+    client.subscribe(currentStation, subscribedPanels());
+    // Network panel: subscribe every group station for rsam so the
+    // multi-station overview fills (each kicks its own 24-h backfill
+    // server-side). Skipped entirely when the panel isn't mounted.
+    if (activePanels.includes('network')) {
+      for (const gs of networkGroup()) {
+        if (gs !== currentStation) client.subscribe(gs, ['rsam']);
+      }
+    }
   }
   function onActiveChanged(ids: string[]) {
     activePanels = ids;
@@ -148,7 +162,15 @@ export function mountApp(root: HTMLElement, version: string): void {
       }
     },
     onPanelFrame(panelId, frame) {
-      if ((frame as { station?: string }).station !== currentStation) return;
+      const fstation = (frame as { station?: string }).station;
+      // Network panel: route rsam frames for ANY group station to the
+      // multi-station aggregator (independent of the global selection).
+      if (panelId === 'rsam' && activePanels.includes('network') &&
+          fstation && networkGroup().includes(fstation)) {
+        feedNetwork(fstation, frame as { startMs: number; binS: number; data: Array<number | null> });
+        dashboard.setFrame('network', frame); // trigger a redraw
+      }
+      if (fstation !== currentStation) return;
       if (firstFrameAt === null) {
         firstFrameAt = Date.now();
         const el = document.getElementById('conn');
@@ -214,6 +236,7 @@ export function mountApp(root: HTMLElement, version: string): void {
     resetDrum();
     resetRsam();
     resetSpectrum();
+    resetNetwork();
     dashboard.clear();
     currentStation = next;
     firstFrameAt = null;

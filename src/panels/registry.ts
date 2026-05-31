@@ -13,6 +13,7 @@ import { particleMotion } from './particle-motion';
 import { ppsd } from './ppsd';
 import { spectrum } from './spectrum';
 import { threeComp } from './three-comp';
+import { network } from './network';
 
 export type PanelCategory = 'live' | 'event';
 
@@ -30,5 +31,5 @@ export interface PanelDef {
 }
 
 export const panelRegistry: Record<string, PanelDef> = Object.fromEntries(
-  [drum, rsam, helicorder, spectrogram, spectrum, rawScope, threeComp, psd, staLta, particleMotion, ppsd].map((p) => [p.id, p])
+  [drum, rsam, helicorder, spectrogram, spectrum, rawScope, threeComp, psd, staLta, particleMotion, ppsd, network].map((p) => [p.id, p])
 );
