@@ -66,6 +66,9 @@ export function mountWorldMap(
   let selectedEventId: string | null = null;
   const hitTargets: HitTarget[] = [];
 
+  // View transform: zoom about the canvas centre + pixel pan offset.
+  let zoom = 1, panX = 0, panY = 0;
+
   const ro = new ResizeObserver(() => {
     dpr = window.devicePixelRatio || 1;
     cssW = canvas.clientWidth;
@@ -77,11 +80,23 @@ export function mountWorldMap(
   });
   ro.observe(canvas);
 
-  // Project longitude / latitude into canvas pixel space.
+  // Project longitude / latitude into canvas pixel space, with the
+  // current zoom (about centre) + pan applied.
   function project(lon: number, lat: number): [number, number] {
-    const x = ((lon + 180) / 360) * cssW;
-    const y = ((90 - lat) / 180) * cssH;
-    return [x, y];
+    const x0 = ((lon + 180) / 360) * cssW;
+    const y0 = ((90 - lat) / 180) * cssH;
+    return [
+      (x0 - cssW / 2) * zoom + cssW / 2 + panX,
+      (y0 - cssH / 2) * zoom + cssH / 2 + panY,
+    ];
+  }
+
+  /** Clamp pan so at least the map stays partly in view. */
+  function clampPan() {
+    const maxX = (cssW * zoom - cssW) / 2 + cssW * 0.5;
+    const maxY = (cssH * zoom - cssH) / 2 + cssH * 0.5;
+    panX = Math.max(-maxX, Math.min(maxX, panX));
+    panY = Math.max(-maxY, Math.min(maxY, panY));
   }
 
   function drawGraticule() {
@@ -218,7 +233,50 @@ export function mountWorldMap(
     return best;
   }
 
+  // ── Pan / zoom ──────────────────────────────────────────────────────
+  let dragging = false, dragMoved = false, dragX = 0, dragY = 0;
+  let panX0 = 0, panY0 = 0;
+
+  canvas.addEventListener('mousedown', (ev) => {
+    dragging = true; dragMoved = false;
+    dragX = ev.clientX; dragY = ev.clientY;
+    panX0 = panX; panY0 = panY;
+  });
+  window.addEventListener('mousemove', (ev) => {
+    if (!dragging) return;
+    const dx = ev.clientX - dragX, dy = ev.clientY - dragY;
+    if (Math.abs(dx) + Math.abs(dy) > 3) dragMoved = true;
+    panX = panX0 + dx; panY = panY0 + dy;
+    clampPan();
+    canvas.style.cursor = 'grabbing';
+    tooltip.style.display = 'none';
+    draw();
+  });
+  window.addEventListener('mouseup', () => {
+    if (dragging) { dragging = false; canvas.style.cursor = 'crosshair'; }
+  });
+  canvas.addEventListener('wheel', (ev) => {
+    ev.preventDefault();
+    const rect = canvas.getBoundingClientRect();
+    const cx = ev.clientX - rect.left, cy = ev.clientY - rect.top;
+    const factor = ev.deltaY > 0 ? 1 / 1.2 : 1.2;
+    const newZoom = Math.max(1, Math.min(10, zoom * factor));
+    // Keep the geographic point under the cursor fixed: adjust pan so
+    // the projected cursor position is invariant under the zoom change.
+    const k = newZoom / zoom;
+    panX = cx - k * (cx - panX);
+    panY = cy - k * (cy - panY);
+    zoom = newZoom;
+    if (zoom === 1) { panX = 0; panY = 0; }
+    clampPan();
+    draw();
+  }, { passive: false });
+  canvas.addEventListener('dblclick', () => {
+    zoom = 1; panX = 0; panY = 0; draw();
+  });
+
   canvas.addEventListener('mousemove', (ev) => {
+    if (dragging) return; // panning, no tooltip
     const rect = canvas.getBoundingClientRect();
     const cx = ev.clientX - rect.left;
     const cy = ev.clientY - rect.top;
@@ -248,6 +306,7 @@ export function mountWorldMap(
   });
 
   canvas.addEventListener('click', (ev) => {
+    if (dragMoved) { dragMoved = false; return; } // it was a pan, not a click
     const rect = canvas.getBoundingClientRect();
     const cx = ev.clientX - rect.left;
     const cy = ev.clientY - rect.top;
