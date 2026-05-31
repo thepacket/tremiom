@@ -3,7 +3,12 @@
  *  already applied the device-pixel-ratio transform.
  */
 
-export const AXIS_PAD = { top: 6, right: 8, bottom: 14, left: 40 };
+export const AXIS_PAD = { top: 6, right: 8, bottom: 14, left: 50 };
+/** Horizontal position (CSS px) where the rotated Y-axis caption sits. */
+export const Y_CAPTION_X = 8;
+/** Right edge of tick labels — kept inside the padding with a clear gap
+ *  from the caption to the left and the plot area to the right. */
+export const Y_TICK_LABEL_RIGHT_OFFSET = 6; // labels end at left - this
 export const COLOR_GRID  = '#1a2025';
 export const COLOR_AXIS  = '#3a4248';
 export const COLOR_LABEL = '#8a8a8a';
@@ -53,19 +58,29 @@ export function drawYAxis(
     ctx.stroke();
     ctx.fillStyle = COLOR_LABEL;
     ctx.textAlign = 'right';
-    ctx.fillText(fmt(v), left - 4, y);
+    ctx.fillText(fmt(v), left - Y_TICK_LABEL_RIGHT_OFFSET, y);
   }
 
-  if (opts.unit) {
-    ctx.save();
-    ctx.translate(10, top + plotH / 2);
-    ctx.rotate(-Math.PI / 2);
-    ctx.fillStyle = COLOR_LABEL;
-    ctx.textAlign = 'center';
-    ctx.textBaseline = 'middle';
-    ctx.fillText(opts.unit, 0, 0);
-    ctx.restore();
-  }
+  if (opts.unit) drawYCaption(ctx, h, opts.unit);
+}
+
+/** Draw a rotated unit caption (e.g. "counts", "Hz", "dB") on the
+ *  far-left side of the plot area. Kept far enough from the tick
+ *  labels that they never touch. */
+export function drawYCaption(
+  ctx: CanvasRenderingContext2D, h: number, unit: string,
+) {
+  const { top, bottom } = AXIS_PAD;
+  const plotH = Math.max(10, h - top - bottom);
+  ctx.save();
+  ctx.translate(Y_CAPTION_X, top + plotH / 2);
+  ctx.rotate(-Math.PI / 2);
+  ctx.fillStyle = COLOR_LABEL;
+  ctx.font = '10px ui-monospace, SFMono-Regular, Menlo, monospace';
+  ctx.textAlign = 'center';
+  ctx.textBaseline = 'middle';
+  ctx.fillText(unit, 0, 0);
+  ctx.restore();
 }
 
 /** Draw an X-axis with seconds-back tick labels (0 at the right edge,

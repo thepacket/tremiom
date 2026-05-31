@@ -1,6 +1,7 @@
 import type { PanelDef } from './registry';
 import {
-  AXIS_PAD, COLOR_GRID, COLOR_LABEL, drawFrame, niceStep, plotBounds,
+  AXIS_PAD, COLOR_GRID, COLOR_LABEL, Y_TICK_LABEL_RIGHT_OFFSET,
+  drawFrame, drawYCaption, niceStep, plotBounds,
 } from './axes';
 
 /** PSD — power spectral density. Latest Welch estimate, log-frequency
@@ -62,7 +63,7 @@ export const psd: PanelDef = {
     for (let v = Math.ceil(dbMin / yStep) * yStep; v <= dbMax + 1e-9; v += yStep) {
       const y = pb.top + ((dbMax - v) / dbSpan) * pb.height;
       ctx.beginPath(); ctx.moveTo(pb.left, y); ctx.lineTo(pb.right, y); ctx.stroke();
-      ctx.fillText(`${v.toFixed(0)}`, pb.left - 4, y);
+      ctx.fillText(`${v.toFixed(0)}`, pb.left - Y_TICK_LABEL_RIGHT_OFFSET, y);
     }
 
     // X-axis (log f) decade ticks + labels.
@@ -82,13 +83,7 @@ export const psd: PanelDef = {
     ctx.fillStyle = COLOR_LABEL;
     ctx.textAlign = 'right';
     ctx.fillText('Hz', pb.right, pb.bottom + 2);
-    ctx.save();
-    ctx.translate(10, pb.top + pb.height / 2);
-    ctx.rotate(-Math.PI / 2);
-    ctx.textAlign = 'center';
-    ctx.textBaseline = 'middle';
-    ctx.fillText('dB', 0, 0);
-    ctx.restore();
+    drawYCaption(ctx, h, 'dB');
 
     drawFrame(ctx, w, h);
 

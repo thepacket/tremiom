@@ -1,6 +1,7 @@
 import type { PanelDef } from './registry';
 import {
-  AXIS_PAD, COLOR_LABEL, drawFrame, niceStep, plotBounds,
+  AXIS_PAD, COLOR_LABEL, Y_TICK_LABEL_RIGHT_OFFSET,
+  drawFrame, drawYCaption, niceStep, plotBounds,
 } from './axes';
 
 /** Spectrogram — sliding STFT columns. Server sends one column per frame
@@ -88,14 +89,9 @@ export const spectrogram: PanelDef = {
     const fStep = niceStep(fSpan, 4);
     for (let v = Math.ceil(fMin / fStep) * fStep; v <= fMax + 1e-9; v += fStep) {
       const y = pb.top + ((fMax - v) / fSpan) * pb.height;
-      ctx.fillText(`${v}`, pb.left - 4, y);
+      ctx.fillText(`${v}`, pb.left - Y_TICK_LABEL_RIGHT_OFFSET, y);
     }
-    ctx.save();
-    ctx.translate(10, pb.top + pb.height / 2);
-    ctx.rotate(-Math.PI / 2);
-    ctx.textAlign = 'center';
-    ctx.fillText('Hz', 0, 0);
-    ctx.restore();
+    drawYCaption(ctx, h, 'Hz');
 
     // Time X-axis (seconds back; column rate is 1 Hz so cols ≈ seconds).
     ctx.textAlign = 'center';
