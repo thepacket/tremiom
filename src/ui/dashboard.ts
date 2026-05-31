@@ -1,91 +1,152 @@
-/** Grafana-style configurable dashboard built on gridstack.js.
+/** Multi-dashboard manager built on gridstack.js.
  *
- *  Each panel is a gridstack widget the user can drag (by its header)
- *  and resize (from any corner / edge). Layout persists to
- *  localStorage on every change; first load uses DEFAULT_LAYOUT.
- *
- *  The dashboard owns the canvas + render plumbing per panel; app.ts
- *  pushes frames into setFrame() and asks for state changes through
- *  addPanel / removePanel.
+ *  - Many named dashboards; one displayed at a time. CRUD via the
+ *    topbar dashboard bar.
+ *  - Each dashboard is a set of widgets. A widget is either a streaming
+ *    panel (canvas, type === a panelRegistry id, one instance) or a
+ *    markdown notes panel (type "markdown", 0..many instances, each with
+ *    its own editable content).
+ *  - Layout + content + the dashboard list persist to localStorage
+ *    (tremiom-dashboards-v2), migrating the old single-layout key.
+ *  - The whole displayed dashboard can be printed to PDF.
  */
 
 import 'gridstack/dist/gridstack.min.css';
-import { GridStack, type GridStackWidget } from 'gridstack';
+import { GridStack } from 'gridstack';
 import { panelRegistry, type PanelDef } from '../panels/registry';
+import { renderMarkdown } from '../util/markdown';
 
-const STORAGE_KEY = 'tremiom-dashboard-v1';
+const STORE_KEY = 'tremiom-dashboards-v2';
+const OLD_KEY = 'tremiom-dashboard-v1';
+export const MARKDOWN_TYPE = 'markdown';
 
-interface MountedPanel {
-  id: string;
-  panel: PanelDef;
+interface Widget {
+  id: string;   // unique instance id
+  type: string; // panelRegistry id, or "markdown"
+  x: number; y: number; w: number; h: number;
+  content?: string; // markdown text (markdown widgets only)
+}
+interface Dashboard { id: string; name: string; widgets: Widget[]; }
+interface Store { current: string; order: string[]; dashboards: Record<string, Dashboard>; }
+
+interface Mounted {
+  widget: Widget;
   el: HTMLElement;
-  canvas: HTMLCanvasElement;
-  ctx: CanvasRenderingContext2D;
-  ro: ResizeObserver;
+  // canvas panels:
+  def?: PanelDef;
+  canvas?: HTMLCanvasElement;
+  ctx?: CanvasRenderingContext2D;
+  ro?: ResizeObserver;
+  // markdown panels:
+  renderedEl?: HTMLElement;
+  textarea?: HTMLTextAreaElement;
 }
 
 export interface DashboardHandle {
-  setFrame(panelId: string, frame: unknown): void;
-  clear(panelId?: string): void;
-  addPanel(panelId: string): void;
-  removePanel(panelId: string): void;
-  activePanels(): string[];
+  setFrame(panelType: string, frame: unknown): void;
+  clear(panelType?: string): void;
+  addPanel(panelType: string): void;
+  removePanel(instanceId: string): void;
+  activePanels(): string[];           // streaming panel types to subscribe
   resetLayout(): void;
+  // multi-dashboard:
+  listDashboards(): Array<{ id: string; name: string }>;
+  currentId(): string;
+  selectDashboard(id: string): void;
+  createDashboard(name: string): string;
+  renameDashboard(id: string, name: string): void;
+  deleteDashboard(id: string): void;
+  printPdf(): void;
+  /** Called whenever the displayed dashboard's streaming-panel set changes
+   *  (panel add/remove, dashboard switch) so the caller can re-subscribe. */
 }
 
-/** Sensible default placement on a 24-column grid (cellHeight = 30 px). */
-const DEFAULT_LAYOUT: GridStackWidget[] = [
-  // Top: drum spans the full width (the iconic display).
-  { id: 'drum',            x:  0, y:  0, w: 24, h: 10 },
-  // RSAM full-width strip directly under the drum — both are 24-h
-  // timelines, so stacking them lets the eye correlate amplitude
-  // trend against the drum's individual traces.
-  { id: 'rsam',            x:  0, y: 10, w: 24, h:  7 },
-  // Spectrogram + STA/LTA side by side.
-  { id: 'spectrogram',     x:  0, y: 17, w: 12, h:  9 },
-  { id: 'sta-lta',         x: 12, y: 17, w: 12, h:  9 },
-  // Particle motion (square, narrower) + PPSD (wide).
-  { id: 'particle-motion', x:  0, y: 26, w:  8, h: 11 },
-  { id: 'ppsd',            x:  8, y: 26, w: 16, h: 11 },
+const DEFAULT_WIDGETS: Widget[] = [
+  { id: 'drum',            type: 'drum',            x: 0,  y: 0,  w: 24, h: 10 },
+  { id: 'rsam',            type: 'rsam',            x: 0,  y: 10, w: 24, h: 7 },
+  { id: 'spectrogram',     type: 'spectrogram',     x: 0,  y: 17, w: 12, h: 9 },
+  { id: 'sta-lta',         type: 'sta-lta',         x: 12, y: 17, w: 12, h: 9 },
+  { id: 'particle-motion', type: 'particle-motion', x: 0,  y: 26, w: 8,  h: 11 },
+  { id: 'ppsd',            type: 'ppsd',            x: 8,  y: 26, w: 16, h: 11 },
 ];
+
+function uid(prefix: string): string {
+  return `${prefix}-${Date.now().toString(36)}-${Math.floor(Math.random() * 1e4).toString(36)}`;
+}
+
+function loadStore(): Store {
+  try {
+    const raw = localStorage.getItem(STORE_KEY);
+    if (raw) {
+      const s = JSON.parse(raw) as Store;
+      if (s?.dashboards && s.current && s.dashboards[s.current]) return s;
+    }
+  } catch { /* fall through */ }
+  // Migrate the old single-layout key, if present.
+  let widgets = DEFAULT_WIDGETS.slice();
+  try {
+    const old = localStorage.getItem(OLD_KEY);
+    if (old) {
+      const arr = JSON.parse(old) as Array<{ id: string; x: number; y: number; w: number; h: number }>;
+      const mig = (arr || []).filter((w) => w?.id && panelRegistry[w.id])
+        .map((w) => ({ id: w.id, type: w.id, x: w.x, y: w.y, w: w.w, h: w.h }));
+      if (mig.length) widgets = mig;
+    }
+  } catch { /* ignore */ }
+  const id = uid('dash');
+  return { current: id, order: [id], dashboards: { [id]: { id, name: 'Default', widgets } } };
+}
 
 export function mountDashboard(
   parent: HTMLElement,
-  opts: {
-    onActiveChanged(panels: string[]): void;
-    /** Current station NSLC, for PNG export filenames. */
-    stationName?: () => string;
-  },
+  opts: { onActiveChanged(panels: string[]): void; stationName?: () => string },
 ): DashboardHandle {
   const root = document.createElement('div');
   root.className = 'grid-stack';
   parent.appendChild(root);
 
   const gs = GridStack.init({
-    column: 24,
-    cellHeight: 30,
-    margin: 6,
+    column: 24, cellHeight: 30, margin: 6,
     handle: '.panel-header',
     draggable: { handle: '.panel-header', appendTo: 'body' },
     resizable: { handles: 'all' },
-    float: false,
-    animate: false,
-    // Responsive: collapse to a single stacked column on narrow screens
-    // (phones / portrait tablets) so panels are usable instead of crushed
-    // into 1/24th-width slivers. gridstack remaps positions automatically.
+    float: false, animate: false,
     columnOpts: {
       breakpointForWindow: true,
       breakpoints: [{ w: 700, c: 1 }, { w: 1100, c: 12 }],
     },
   }, root);
 
-  const mounted = new Map<string, MountedPanel>();
-  let isLoading = true; // suppress persistence during initial layout build
+  let store = loadStore();
+  const mounted = new Map<string, Mounted>();
+  let isLoading = false;
 
-  function buildPanelEl(def: PanelDef): { item: HTMLElement; canvas: HTMLCanvasElement } {
+  const cur = () => store.dashboards[store.current];
+
+  function persist() {
+    try { localStorage.setItem(STORE_KEY, JSON.stringify(store)); } catch { /* non-fatal */ }
+  }
+
+  // Snapshot gridstack geometry back into the current dashboard's widgets.
+  function captureGeometry() {
+    if (isLoading) return;
+    const nodes = gs.save(false) as Array<{ id?: string; x?: number; y?: number; w?: number; h?: number }>;
+    const byId = new Map(nodes.map((n) => [String(n.id), n]));
+    for (const w of cur().widgets) {
+      const n = byId.get(w.id);
+      if (n) { w.x = n.x ?? w.x; w.y = n.y ?? w.y; w.w = n.w ?? w.w; w.h = n.h ?? w.h; }
+    }
+    persist();
+  }
+  gs.on('change', captureGeometry);
+  gs.on('resizestop', captureGeometry);
+  gs.on('dragstop', captureGeometry);
+
+  // ── Panel element construction ──────────────────────────────────────
+  function buildCanvasPanel(def: PanelDef, m: Mounted): HTMLElement {
     const item = document.createElement('div');
     item.className = 'grid-stack-item';
-    item.setAttribute('gs-id', def.id);
+    item.setAttribute('gs-id', m.widget.id);
     const content = document.createElement('div');
     content.className = 'grid-stack-item-content';
     const panelEl = document.createElement('div');
@@ -93,164 +154,247 @@ export function mountDashboard(
     panelEl.innerHTML = `
       <header class="panel-header">
         <span class="panel-title">${escapeHtml(def.label)}</span>
-        <button class="panel-png" title="Save panel as PNG" aria-label="Save PNG">⤓</button>
-        <button class="panel-remove" title="Remove panel" aria-label="Remove">×</button>
-      </header>
-    `;
+        <button class="panel-png" title="Save panel as PNG">⤓</button>
+        <button class="panel-remove" title="Remove panel">×</button>
+      </header>`;
     const canvas = document.createElement('canvas');
     panelEl.appendChild(canvas);
     content.appendChild(panelEl);
     item.appendChild(content);
-    return { item, canvas };
+    m.canvas = canvas;
+    panelEl.querySelector('.panel-png')!.addEventListener('click', (e) => {
+      e.stopPropagation(); savePanelPng(m);
+    });
+    panelEl.querySelector('.panel-remove')!.addEventListener('click', (e) => {
+      e.stopPropagation(); removePanel(m.widget.id);
+    });
+    return item;
   }
 
-  function ensurePanel(id: string, placement?: GridStackWidget): void {
-    if (mounted.has(id)) return;
-    const def = panelRegistry[id];
-    if (!def) return;
-    const { item, canvas } = buildPanelEl(def);
+  function buildMarkdownPanel(m: Mounted): HTMLElement {
+    const item = document.createElement('div');
+    item.className = 'grid-stack-item';
+    item.setAttribute('gs-id', m.widget.id);
+    const content = document.createElement('div');
+    content.className = 'grid-stack-item-content';
+    const panelEl = document.createElement('div');
+    panelEl.className = 'panel panel-markdown';
+    panelEl.innerHTML = `
+      <header class="panel-header">
+        <span class="panel-title">Notes</span>
+        <button class="panel-edit" title="Edit / view">✎</button>
+        <button class="panel-remove" title="Remove panel">×</button>
+      </header>
+      <div class="md-body">
+        <div class="md-rendered"></div>
+        <textarea class="md-edit" spellcheck="true" placeholder="# Notes&#10;Write **markdown** here…"></textarea>
+      </div>`;
+    content.appendChild(panelEl);
+    item.appendChild(content);
+    const rendered = panelEl.querySelector('.md-rendered') as HTMLElement;
+    const ta = panelEl.querySelector('.md-edit') as HTMLTextAreaElement;
+    m.renderedEl = rendered;
+    m.textarea = ta;
+    ta.value = m.widget.content ?? '';
+    rendered.innerHTML = renderMarkdown(m.widget.content ?? '*(empty note — click ✎ to edit)*');
 
-    // gridstack 12: attach the pre-built element to the grid root,
-    // then register it with makeWidget(el, opts).
-    root.appendChild(item);
-    if (placement) {
-      gs.makeWidget(item, {
-        x: placement.x, y: placement.y,
-        w: placement.w, h: placement.h, id,
-      });
+    const setEditing = (on: boolean) => {
+      panelEl.classList.toggle('editing', on);
+      if (on) { ta.focus(); }
+      else {
+        m.widget.content = ta.value;
+        rendered.innerHTML = renderMarkdown(ta.value || '*(empty note — click ✎ to edit)*');
+        persist();
+      }
+    };
+    panelEl.querySelector('.panel-edit')!.addEventListener('click', (e) => {
+      e.stopPropagation();
+      setEditing(!panelEl.classList.contains('editing'));
+    });
+    // Persist on the fly (debounced) while typing.
+    let t: number | null = null;
+    ta.addEventListener('input', () => {
+      if (t) window.clearTimeout(t);
+      t = window.setTimeout(() => { m.widget.content = ta.value; persist(); }, 400);
+    });
+    panelEl.querySelector('.panel-remove')!.addEventListener('click', (e) => {
+      e.stopPropagation(); removePanel(m.widget.id);
+    });
+    return item;
+  }
+
+  function mountWidget(w: Widget) {
+    const m: Mounted = { widget: w, el: null as unknown as HTMLElement };
+    let item: HTMLElement;
+    if (w.type === MARKDOWN_TYPE) {
+      item = buildMarkdownPanel(m);
     } else {
-      gs.makeWidget(item, { autoPosition: true, w: 12, h: 8, id });
+      const def = panelRegistry[w.type];
+      if (!def) return; // unknown panel type (e.g. removed) — skip
+      m.def = def;
+      item = buildCanvasPanel(def, m);
     }
+    m.el = item;
+    root.appendChild(item);
+    gs.makeWidget(item, { x: w.x, y: w.y, w: w.w, h: w.h, id: w.id });
 
-    const ctx = canvas.getContext('2d')!;
-    const ro = new ResizeObserver(() => {
-      const dpr = window.devicePixelRatio || 1;
-      const w = canvas.clientWidth;
-      const h = canvas.clientHeight;
-      canvas.width  = Math.max(1, Math.floor(w * dpr));
-      canvas.height = Math.max(1, Math.floor(h * dpr));
-      ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
-      // Re-render last frame placeholder after a resize.
-      def.render(ctx, canvas, null);
-    });
-    ro.observe(canvas);
-
-    item.querySelector('.panel-remove')!.addEventListener('click', (e) => {
-      e.stopPropagation();
-      removePanel(id);
-    });
-
-    item.querySelector('.panel-png')!.addEventListener('click', (e) => {
-      e.stopPropagation();
-      savePanelPng(id, def.id);
-    });
-
-    mounted.set(id, { id, panel: def, el: item, canvas, ctx, ro });
+    if (m.canvas && m.def) {
+      const canvas = m.canvas, def = m.def;
+      const ctx = canvas.getContext('2d')!;
+      m.ctx = ctx;
+      const ro = new ResizeObserver(() => {
+        const dpr = window.devicePixelRatio || 1;
+        canvas.width = Math.max(1, Math.floor(canvas.clientWidth * dpr));
+        canvas.height = Math.max(1, Math.floor(canvas.clientHeight * dpr));
+        ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+        def.render(ctx, canvas, null);
+      });
+      ro.observe(canvas);
+      m.ro = ro;
+    }
+    mounted.set(w.id, m);
   }
 
-  function savePanelPng(id: string, panelId: string): void {
-    const m = mounted.get(id);
-    if (!m) return;
-    // The canvas already holds the fully-rendered plot (axes, labels,
-    // traces) at device-pixel resolution, so toBlob captures everything.
+  function unmountAll() {
+    for (const m of mounted.values()) {
+      m.ro?.disconnect();
+      try { gs.removeWidget(m.el, true); } catch { /* ignore */ }
+    }
+    mounted.clear();
+  }
+
+  function renderCurrent() {
+    isLoading = true;
+    unmountAll();
+    for (const w of cur().widgets) mountWidget(w);
+    isLoading = false;
+    opts.onActiveChanged(activePanels());
+  }
+
+  function activePanels(): string[] {
+    const set = new Set<string>();
+    for (const m of mounted.values()) if (m.def) set.add(m.widget.type);
+    return [...set];
+  }
+
+  function savePanelPng(m: Mounted) {
+    if (!m.canvas) return;
     m.canvas.toBlob((blob) => {
       if (!blob) return;
       const station = (opts.stationName?.() || 'station').replace(/[^A-Za-z0-9._-]/g, '_');
       const stamp = new Date().toISOString().replace(/[:.]/g, '-').slice(0, 19);
       const a = document.createElement('a');
       a.href = URL.createObjectURL(blob);
-      a.download = `tremiom_${station}_${panelId}_${stamp}.png`;
-      document.body.appendChild(a);
-      a.click();
-      a.remove();
+      a.download = `tremiom_${station}_${m.widget.type}_${stamp}.png`;
+      document.body.appendChild(a); a.click(); a.remove();
       setTimeout(() => URL.revokeObjectURL(a.href), 1000);
     }, 'image/png');
   }
 
-  function removePanel(id: string): void {
-    const m = mounted.get(id);
+  function removePanel(instanceId: string) {
+    const m = mounted.get(instanceId);
     if (!m) return;
-    gs.removeWidget(m.el);
-    m.ro.disconnect();
-    mounted.delete(id);
-    persistLayout();
-    opts.onActiveChanged([...mounted.keys()]);
+    m.ro?.disconnect();
+    try { gs.removeWidget(m.el, true); } catch { /* ignore */ }
+    mounted.delete(instanceId);
+    cur().widgets = cur().widgets.filter((w) => w.id !== instanceId);
+    persist();
+    opts.onActiveChanged(activePanels());
   }
 
-  function addPanel(id: string): void {
-    if (mounted.has(id)) return;
-    if (!panelRegistry[id]) return;
-    ensurePanel(id);
-    persistLayout();
-    opts.onActiveChanged([...mounted.keys()]);
+  function addPanel(panelType: string) {
+    if (panelType !== MARKDOWN_TYPE && !panelRegistry[panelType]) return;
+    // Streaming panels are single-instance per dashboard; markdown is multi.
+    if (panelType !== MARKDOWN_TYPE && cur().widgets.some((w) => w.type === panelType)) return;
+    const id = panelType === MARKDOWN_TYPE ? uid('md') : panelType;
+    const w: Widget = {
+      id, type: panelType, x: 0, y: 1000, // gridstack drops it at the bottom
+      w: panelType === MARKDOWN_TYPE ? 8 : 12,
+      h: panelType === MARKDOWN_TYPE ? 6 : 8,
+      ...(panelType === MARKDOWN_TYPE ? { content: '' } : {}),
+    };
+    cur().widgets.push(w);
+    mountWidget(w);
+    captureGeometry();
+    opts.onActiveChanged(activePanels());
   }
 
-  function persistLayout(): void {
-    if (isLoading) return;
-    try {
-      const serial = gs.save(false); // don't include rendered content
-      localStorage.setItem(STORAGE_KEY, JSON.stringify(serial));
-    } catch { /* localStorage full / disabled — non-fatal */ }
+  // ── Multi-dashboard ops ─────────────────────────────────────────────
+  function selectDashboard(id: string) {
+    if (!store.dashboards[id] || id === store.current) return;
+    captureGeometry();
+    store.current = id;
+    persist();
+    renderCurrent();
+  }
+  function createDashboard(name: string): string {
+    captureGeometry();
+    const id = uid('dash');
+    store.dashboards[id] = { id, name: name || 'Untitled', widgets: DEFAULT_WIDGETS.slice() };
+    store.order.push(id);
+    store.current = id;
+    persist();
+    renderCurrent();
+    return id;
+  }
+  function renameDashboard(id: string, name: string) {
+    if (store.dashboards[id]) { store.dashboards[id].name = name || store.dashboards[id].name; persist(); }
+  }
+  function deleteDashboard(id: string) {
+    if (!store.dashboards[id]) return;
+    if (store.order.length <= 1) return; // keep at least one
+    delete store.dashboards[id];
+    store.order = store.order.filter((x) => x !== id);
+    if (store.current === id) store.current = store.order[0];
+    persist();
+    renderCurrent();
   }
 
-  gs.on('change', persistLayout);
-  gs.on('resizestop', persistLayout);
-  gs.on('dragstop',   persistLayout);
-
-  // First-time layout: saved (if any) or default.
-  let initial: GridStackWidget[];
-  try {
-    const raw = localStorage.getItem(STORAGE_KEY);
-    initial = raw ? JSON.parse(raw) : DEFAULT_LAYOUT.slice();
-  } catch {
-    initial = DEFAULT_LAYOUT.slice();
-  }
-  // Drop any saved panel ids that no longer exist in the registry.
-  initial = (initial || []).filter((w) => w?.id && panelRegistry[w.id as string]);
-  if (!initial.length) initial = DEFAULT_LAYOUT.slice();
-  for (const w of initial) {
-    ensurePanel(w.id as string, w);
-  }
+  // Initial render (deferred onActiveChanged like before to avoid TDZ).
+  isLoading = true;
+  for (const w of cur().widgets) mountWidget(w);
   isLoading = false;
 
-  // Note: we deliberately don't fire opts.onActiveChanged() during
-  // construction — the caller can read activePanels() once everything
-  // else (WebSocket client, etc.) is wired up. Firing here would call
-  // the handler synchronously and hit any `const` declared further
-  // down in app.ts (TDZ ReferenceError), which silently halts the
-  // rest of mountApp().
-
   return {
-    setFrame(panelId, frame) {
-      const m = mounted.get(panelId);
-      if (!m) return;
-      try {
-        m.panel.render(m.ctx, m.canvas, frame);
-      } catch (e) {
-        console.warn(`[panel ${panelId}] render failed:`, e);
+    setFrame(panelType, frame) {
+      for (const m of mounted.values()) {
+        if (m.def && m.widget.type === panelType && m.ctx && m.canvas) {
+          try { m.def.render(m.ctx, m.canvas, frame); }
+          catch (e) { console.warn(`[panel ${panelType}] render failed:`, e); }
+        }
       }
     },
-    clear(panelId) {
-      const targets = panelId
-        ? (mounted.has(panelId) ? [mounted.get(panelId)!] : [])
-        : [...mounted.values()];
-      for (const m of targets) m.panel.render(m.ctx, m.canvas, null);
+    clear(panelType) {
+      for (const m of mounted.values()) {
+        if (!m.def || !m.ctx || !m.canvas) continue;
+        if (!panelType || m.widget.type === panelType) m.def.render(m.ctx, m.canvas, null);
+      }
     },
     addPanel,
     removePanel,
-    activePanels: () => [...mounted.keys()],
+    activePanels,
     resetLayout() {
-      // Remove every panel, then rebuild from DEFAULT_LAYOUT. Persist
-      // the new layout immediately.
-      for (const id of [...mounted.keys()]) {
-        const m = mounted.get(id)!;
-        gs.removeWidget(m.el);
-        m.ro.disconnect();
-      }
-      mounted.clear();
-      for (const w of DEFAULT_LAYOUT) ensurePanel(w.id as string, w);
-      persistLayout();
-      opts.onActiveChanged([...mounted.keys()]);
+      cur().widgets = DEFAULT_WIDGETS.slice();
+      persist();
+      renderCurrent();
+    },
+    listDashboards: () => store.order.map((id) => ({ id, name: store.dashboards[id].name })),
+    currentId: () => store.current,
+    selectDashboard,
+    createDashboard,
+    renameDashboard,
+    deleteDashboard,
+    printPdf() {
+      captureGeometry();
+      document.body.classList.add('printing-dashboard');
+      const cleanup = () => {
+        document.body.classList.remove('printing-dashboard');
+        window.removeEventListener('afterprint', cleanup);
+      };
+      window.addEventListener('afterprint', cleanup);
+      window.print();
+      // Fallback cleanup if afterprint doesn't fire.
+      setTimeout(cleanup, 1500);
     },
   };
 }

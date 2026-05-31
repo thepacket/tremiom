@@ -14,6 +14,7 @@ import { mountRecordSection } from './record-section';
 import { mountHistoryView } from './history-view';
 import { openSettings } from './settings';
 import { mountDashboard, type DashboardHandle } from './dashboard';
+import { mountDashboardBar } from './dashboard-bar';
 import { mountPanelPicker } from './panel-picker';
 import { mountAlertPicker } from './alert-picker';
 import { alerts } from './alerts';
@@ -37,6 +38,7 @@ export function mountApp(root: HTMLElement, version: string): void {
     <span class="muted">units:</span>
     <span id="units-mount"></span>
     <span id="panel-picker-mount"></span>
+    <span id="dashboard-bar-mount"></span>
     <button class="pin-btn" id="pin-btn" title="Pin current trace to the Wave clipboard">📌 Pin</button>
     <span id="alert-picker-mount"></span>
     <button class="hist-btn" id="hist-btn" title="Browse arbitrary time windows">🕓 History</button>
@@ -377,6 +379,9 @@ export function mountApp(root: HTMLElement, version: string): void {
     onRemove: (id) => dashboard.removePanel(id),
     onReset:  () => dashboard.resetLayout(),
   });
+
+  const dashBarMount = document.getElementById('dashboard-bar-mount')!;
+  mountDashboardBar(dashBarMount, dashboard);
 
   const alertMount = document.getElementById('alert-picker-mount')!;
   mountAlertPicker(alertMount, () => resubscribe());

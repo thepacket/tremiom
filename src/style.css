@@ -438,6 +438,83 @@ html, body {
   min-width: 0;
 }
 
+/* ── Markdown notes panel ───────────────────────────────────────────── */
+.panel-markdown { grid-template-rows: 24px minmax(0, 1fr); }
+.panel-edit {
+  background: transparent; border: 1px solid transparent; color: var(--muted);
+  font-size: 13px; line-height: 1; padding: 0 4px; border-radius: 3px; cursor: pointer;
+}
+.panel-edit:hover { color: var(--accent); border-color: var(--accent); }
+.md-body { position: relative; min-height: 0; overflow: hidden; }
+.md-rendered {
+  height: 100%; overflow: auto; padding: 8px 12px;
+  font-size: 13px; line-height: 1.5; color: var(--fg);
+}
+.md-rendered h1, .md-rendered h2, .md-rendered h3,
+.md-rendered h4, .md-rendered h5, .md-rendered h6 {
+  margin: 0.6em 0 0.3em; line-height: 1.2; color: var(--fg);
+}
+.md-rendered h1 { font-size: 1.5em; color: var(--accent); }
+.md-rendered h2 { font-size: 1.3em; }
+.md-rendered h3 { font-size: 1.1em; }
+.md-rendered p { margin: 0.4em 0; }
+.md-rendered code {
+  background: #1a1a1a; padding: 1px 4px; border-radius: 3px;
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 0.9em;
+}
+.md-rendered pre {
+  background: #1a1a1a; padding: 8px 10px; border-radius: 4px; overflow: auto;
+}
+.md-rendered pre code { background: none; padding: 0; }
+.md-rendered a { color: var(--accent); }
+.md-rendered blockquote {
+  border-left: 3px solid var(--panel-border); margin: 0.4em 0; padding: 0 10px; color: var(--muted);
+}
+.md-rendered ul, .md-rendered ol { margin: 0.4em 0; padding-left: 1.4em; }
+.md-rendered hr { border: none; border-top: 1px solid var(--panel-border); margin: 0.8em 0; }
+.md-edit {
+  display: none; position: absolute; inset: 0; width: 100%; height: 100%;
+  background: #0d0d0d; color: var(--fg); border: none; resize: none; padding: 8px 12px;
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 12px; line-height: 1.5;
+  box-sizing: border-box;
+}
+.md-edit:focus { outline: none; }
+.panel-markdown.editing .md-rendered { display: none; }
+.panel-markdown.editing .md-edit { display: block; }
+
+/* ── Dashboard selector bar ─────────────────────────────────────────── */
+.dashboard-bar { display: inline-flex; align-items: center; gap: 4px; }
+.dash-select {
+  background: #1a1a1a; color: var(--fg); border: 1px solid var(--panel-border);
+  border-radius: 3px; padding: 2px 6px; font: inherit; font-size: 12px; max-width: 160px;
+}
+.dash-select:focus { outline: none; border-color: var(--accent); }
+.dash-btn {
+  background: #1a1a1a; color: var(--fg); border: 1px solid var(--panel-border);
+  border-radius: 3px; padding: 2px 7px; font: inherit; font-size: 12px; cursor: pointer;
+}
+.dash-btn:hover { border-color: var(--accent); color: var(--accent); }
+.dash-btn:disabled { opacity: 0.4; cursor: default; }
+
+/* ── Print to PDF: show only the dashboard ──────────────────────────── */
+@media print {
+  body.printing-dashboard .topbar,
+  body.printing-dashboard .map-host,
+  body.printing-dashboard .sidebar-host,
+  body.printing-dashboard .event-host,
+  body.printing-dashboard .history-host,
+  body.printing-dashboard .panel-header .panel-remove,
+  body.printing-dashboard .panel-header .panel-png,
+  body.printing-dashboard .panel-header .panel-edit { display: none !important; }
+  body.printing-dashboard #app { display: block; height: auto; }
+  body.printing-dashboard .body { display: block; height: auto; overflow: visible; }
+  body.printing-dashboard .main-area { display: block; min-height: 0; }
+  body.printing-dashboard .dash-host { padding: 0; overflow: visible; }
+  body.printing-dashboard .panel-markdown.editing .md-rendered { display: block; }
+  body.printing-dashboard .panel-markdown.editing .md-edit { display: none; }
+  @page { margin: 12mm; }
+}
+
 /* gridstack resize handles — make them visible on hover */
 .grid-stack-item > .ui-resizable-handle { opacity: 0; transition: opacity .15s; }
 .grid-stack-item:hover > .ui-resizable-handle { opacity: 1; }
