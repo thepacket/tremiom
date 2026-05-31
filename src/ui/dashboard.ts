@@ -57,6 +57,8 @@ export interface DashboardHandle {
   renameDashboard(id: string, name: string): void;
   deleteDashboard(id: string): void;
   printPdf(): void;
+  exportDashboard(): void;            // download current dashboard as JSON
+  importDashboard(text: string): boolean; // add dashboard from JSON; returns ok
   /** Called whenever the displayed dashboard's streaming-panel set changes
    *  (panel add/remove, dashboard switch) so the caller can re-subscribe. */
 }
@@ -72,6 +74,11 @@ const DEFAULT_WIDGETS: Widget[] = [
 
 function uid(prefix: string): string {
   return `${prefix}-${Date.now().toString(36)}-${Math.floor(Math.random() * 1e4).toString(36)}`;
+}
+
+function num(v: unknown, fallback: number): number {
+  const n = Number(v);
+  return Number.isFinite(n) ? n : fallback;
 }
 
 function loadStore(): Store {
@@ -384,6 +391,53 @@ export function mountDashboard(
     createDashboard,
     renameDashboard,
     deleteDashboard,
+    exportDashboard() {
+      captureGeometry();
+      const d = cur();
+      const doc = {
+        tremiom: 'dashboard', version: 1,
+        name: d.name, widgets: d.widgets,
+        exportedAt: new Date().toISOString(),
+      };
+      const safe = d.name.replace(/[^A-Za-z0-9._-]/g, '_') || 'dashboard';
+      const a = document.createElement('a');
+      a.href = URL.createObjectURL(new Blob([JSON.stringify(doc, null, 2)], { type: 'application/json' }));
+      a.download = `tremiom_dashboard_${safe}.json`;
+      document.body.appendChild(a); a.click(); a.remove();
+      setTimeout(() => URL.revokeObjectURL(a.href), 1000);
+    },
+    importDashboard(text) {
+      let doc: { name?: string; widgets?: unknown };
+      try { doc = JSON.parse(text); } catch { return false; }
+      // Accept the wrapped export, a bare {name,widgets}, or a raw array.
+      const rawWidgets = Array.isArray(doc) ? doc
+        : Array.isArray((doc as { widgets?: unknown }).widgets) ? (doc as { widgets: unknown[] }).widgets
+        : null;
+      if (!rawWidgets) return false;
+      // Validate + sanitize widgets; keep only known panel types + markdown.
+      const widgets: Widget[] = [];
+      for (const w of rawWidgets as Array<Record<string, unknown>>) {
+        const type = String(w.type ?? w.id ?? '');
+        if (type !== MARKDOWN_TYPE && !panelRegistry[type]) continue;
+        const id = type === MARKDOWN_TYPE ? uid('md') : type;
+        widgets.push({
+          id, type,
+          x: num(w.x, 0), y: num(w.y, 1000), w: num(w.w, 12), h: num(w.h, 8),
+          ...(type === MARKDOWN_TYPE ? { content: typeof w.content === 'string' ? w.content : '' } : {}),
+        });
+      }
+      if (!widgets.length) return false;
+      captureGeometry();
+      const id = uid('dash');
+      const name = (typeof (doc as { name?: unknown }).name === 'string'
+        ? (doc as { name: string }).name : 'Imported') || 'Imported';
+      store.dashboards[id] = { id, name, widgets };
+      store.order.push(id);
+      store.current = id;
+      persist();
+      renderCurrent();
+      return true;
+    },
     printPdf() {
       captureGeometry();
       document.body.classList.add('printing-dashboard');

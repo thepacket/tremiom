@@ -13,11 +13,26 @@ export function mountDashboardBar(parent: HTMLElement, dash: DashboardHandle): v
     <button class="dash-btn" data-act="rename" title="Rename dashboard">✎</button>
     <button class="dash-btn" data-act="delete" title="Delete dashboard">🗑</button>
     <button class="dash-btn" data-act="notes"  title="Add a markdown notes panel">+ Notes</button>
+    <button class="dash-btn" data-act="export" title="Export dashboard as JSON">⤓ JSON</button>
+    <button class="dash-btn" data-act="import" title="Import dashboard from JSON">⤒ Import</button>
     <button class="dash-btn" data-act="pdf"    title="Print dashboard to PDF">⤓ PDF</button>
   `;
   parent.appendChild(wrap);
 
   const sel = wrap.querySelector('.dash-select') as HTMLSelectElement;
+  const fileInput = document.createElement('input');
+  fileInput.type = 'file';
+  fileInput.accept = '.json,application/json';
+  fileInput.style.display = 'none';
+  wrap.appendChild(fileInput);
+  fileInput.addEventListener('change', async () => {
+    const f = fileInput.files?.[0];
+    fileInput.value = '';
+    if (!f) return;
+    const ok = dash.importDashboard(await f.text());
+    if (ok) refresh();
+    else alert('Could not import: not a valid tremiom dashboard JSON.');
+  });
 
   function refresh() {
     const list = dash.listDashboards();
@@ -52,6 +67,10 @@ export function mountDashboardBar(parent: HTMLElement, dash: DashboardHandle): v
         }
       } else if (act === 'notes') {
         dash.addPanel('markdown');
+      } else if (act === 'export') {
+        dash.exportDashboard();
+      } else if (act === 'import') {
+        fileInput.click();
       } else if (act === 'pdf') {
         dash.printPdf();
       }
