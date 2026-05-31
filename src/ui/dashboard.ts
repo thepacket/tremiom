@@ -173,8 +173,12 @@ export function mountDashboard(
   }
   isLoading = false;
 
-  // Tell the caller what we ended up with (so it can subscribe).
-  opts.onActiveChanged([...mounted.keys()]);
+  // Note: we deliberately don't fire opts.onActiveChanged() during
+  // construction — the caller can read activePanels() once everything
+  // else (WebSocket client, etc.) is wired up. Firing here would call
+  // the handler synchronously and hit any `const` declared further
+  // down in app.ts (TDZ ReferenceError), which silently halts the
+  // rest of mountApp().
 
   return {
     setFrame(panelId, frame) {

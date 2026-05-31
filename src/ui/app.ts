@@ -100,15 +100,17 @@ export function mountApp(root: HTMLElement, version: string): void {
 
   // The dashboard ⇄ subscription bridge: the dashboard tells us which
   // panels are mounted; we re-subscribe with that list so the worker
-  // only computes what's visible.
-  let dashboard: DashboardHandle;
+  // only computes what's visible. `client` is declared below — until
+  // it exists, onActiveChanged is a no-op (mountDashboard purposely
+  // doesn't fire it during construction).
   let activePanels: string[] = [];
   function onActiveChanged(ids: string[]) {
     activePanels = ids;
-    // Re-subscribe with the new set so the worker stops/starts panels.
-    client.subscribe(currentStation, activePanels);
+    if (clientReady) client.subscribe(currentStation, activePanels);
   }
-  dashboard = mountDashboard(dashHost, { onActiveChanged });
+  let clientReady = false;
+  const dashboard: DashboardHandle = mountDashboard(dashHost, { onActiveChanged });
+  activePanels = dashboard.activePanels();
 
   // ── Transport ───────────────────────────────────────────────────────
   const client = new TremiomClient({
@@ -246,10 +248,11 @@ export function mountApp(root: HTMLElement, version: string): void {
   document.getElementById('live-btn')?.addEventListener('click', () => pickEvent(null));
   document.getElementById('settings-btn')?.addEventListener('click', openSettings);
 
-  // Initial overlay + subscription. The dashboard already announced its
-  // active set via onActiveChanged() in mountDashboard, which fired the
-  // first subscribe — but we still want to lock in the coords and any
-  // active filter at boot.
+  // Initial overlay + subscription. mountDashboard didn't fire
+  // onActiveChanged during construction (would TDZ-crash on `client`),
+  // so subscribe explicitly now that both exist.
   refreshDrumOverlays();
   void ensureStationCoords(currentStation);
+  clientReady = true;
+  client.subscribe(currentStation, activePanels);
 }
