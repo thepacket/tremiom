@@ -87,7 +87,7 @@ export function mountRecordSection(parent: HTMLElement): RecordSectionHandle {
       // One CSV per station would be cleaner, but a single wide file is
       // easier to hand off: columns = time_s_from_origin + one per station.
       const lines: string[] = [];
-      lines.push('# tremiom event ' + e.id + ' M' + (e.mag ?? '?') + ' ' + e.place);
+      lines.push('# Tremiom event ' + e.id + ' M' + (e.mag ?? '?') + ' ' + e.place);
       lines.push('# columns: station, distKm, pArrivalS, sArrivalS, sr, t0Ms, samples...');
       for (const s of waveforms.stations) {
         lines.push([s.nslc, s.distKm.toFixed(1), s.pArrivalS ?? '', s.sArrivalS ?? '',
@@ -208,7 +208,7 @@ export function mountRecordSection(parent: HTMLElement): RecordSectionHandle {
       // Offset from the catalog location, as a quality cross-check.
       const offKm = greatCircleKm(e.lat, e.lon, d.lat!, d.lon!);
       setStatus(
-        `tremiom location: ${d.lat!.toFixed(2)}°, ${d.lon!.toFixed(2)}°, ` +
+        `Tremiom location: ${d.lat!.toFixed(2)}°, ${d.lon!.toFixed(2)}°, ` +
         `${d.depthKm} km · RMS ${d.rmsSec}s · n=${d.n} · ${offKm.toFixed(0)} km from catalog`,
         'info');
     } catch (err) {
@@ -573,7 +573,7 @@ export function mountRecordSection(parent: HTMLElement): RecordSectionHandle {
         const parts: string[] = [];
         if (d.ml != null) parts.push(`ML ${d.ml.toFixed(1)} (±${d.spread ?? 0}, n=${d.n})`);
         if (d.md != null) parts.push(`Md ${d.md.toFixed(1)} (n=${d.mdN})`);
-        info.textContent = `${base}  ·  tremiom ${parts.join('  ·  ')}`;
+        info.textContent = `${base}  ·  Tremiom ${parts.join('  ·  ')}`;
       }
     } catch { /* magnitude unavailable — leave the catalog mag */ }
   }

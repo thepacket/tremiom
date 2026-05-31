@@ -1,6 +1,6 @@
 # Contributing
 
-tremiom is a solo-authored project. **It does not accept pull requests.** An
+Tremiom is a solo-authored project. **It does not accept pull requests.** An
 automated workflow closes incoming PRs and points the author here.
 
 This isn't hostility — it's a deliberate scope choice that keeps the codebase

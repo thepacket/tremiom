@@ -31,7 +31,7 @@ export function mountDashboardBar(parent: HTMLElement, dash: DashboardHandle): v
     if (!f) return;
     const ok = dash.importDashboard(await f.text());
     if (ok) refresh();
-    else alert('Could not import: not a valid tremiom dashboard JSON.');
+    else alert('Could not import: not a valid Tremiom dashboard JSON.');
   });
 
   function refresh() {

@@ -1,4 +1,4 @@
-# CLAUDE.md — tremiom working notes
+# CLAUDE.md — Tremiom working notes
 
 Browser-based real-time + historical **seismology** workstation.
 Sole coder: Claude Code; human maintainer (Andre Paquette) directs + ships.

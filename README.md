@@ -1,4 +1,4 @@
-# tremiom
+# Tremiom
 
 **A real-time and historical seismology workstation in your browser.**
 
@@ -377,7 +377,7 @@ keys, and Fly secret values are gitignored and managed via
 
 ## Contributing
 
-tremiom is a solo-authored project and **does not accept pull requests**.
+Tremiom is a solo-authored project and **does not accept pull requests**.
 An automated workflow closes incoming PRs. Bug reports, feature
 requests, and discussions are welcome — see
 [`CONTRIBUTING.md`](./CONTRIBUTING.md). The MIT license grants you the

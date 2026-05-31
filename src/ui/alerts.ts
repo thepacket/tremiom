@@ -63,7 +63,7 @@ export const alerts = {
 };
 
 function fire(station: string, peak: number, threshold: number) {
-  const title = `tremiom — trigger on ${station}`;
+  const title = `Tremiom — trigger on ${station}`;
   const bodyText = `STA/LTA ${peak.toFixed(1)} ≥ ${threshold.toFixed(1)} at ${new Date().toUTCString()}`;
   if ('Notification' in window && Notification.permission === 'granted') {
     try { new Notification(title, { body: bodyText, tag: 'tremiom-trigger' }); } catch { /* ignore */ }

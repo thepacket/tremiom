@@ -31,7 +31,7 @@ export function mountApp(root: HTMLElement, version: string): void {
   topbar.className = 'topbar';
   topbar.innerHTML = `
     <div class="topbar-row">
-      <span class="brand">tremiom</span>
+      <span class="brand">Tremiom</span>
       <span class="muted">v${version}</span>
       <span class="muted">station:</span>
       <span id="picker-mount"></span>
