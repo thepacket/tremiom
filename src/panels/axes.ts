@@ -49,6 +49,12 @@ export function drawYAxis(
   ctx.font = '10px ui-monospace, SFMono-Regular, Menlo, monospace';
   ctx.textBaseline = 'middle';
 
+  // textBaseline 'middle' centers labels on the tick y; without clamp,
+  // a label at the very top/bottom of the plot extends past the frame
+  // and gets clipped by the panel's overflow:hidden. Keep labels inside.
+  const labelHalfHeight = 5;
+  const yTopClamp    = top + labelHalfHeight;
+  const yBottomClamp = top + plotH - labelHalfHeight;
   for (let v = Math.ceil(yMin / step) * step; v <= yMax + 1e-9; v += step) {
     const y = top + ((yMax - v) / span) * plotH;
     ctx.strokeStyle = COLOR_GRID;
@@ -58,7 +64,8 @@ export function drawYAxis(
     ctx.stroke();
     ctx.fillStyle = COLOR_LABEL;
     ctx.textAlign = 'right';
-    ctx.fillText(fmt(v), left - Y_TICK_LABEL_RIGHT_OFFSET, y);
+    const labelY = Math.max(yTopClamp, Math.min(yBottomClamp, y));
+    ctx.fillText(fmt(v), left - Y_TICK_LABEL_RIGHT_OFFSET, labelY);
   }
 
   if (opts.unit) drawYCaption(ctx, h, opts.unit);

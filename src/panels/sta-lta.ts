@@ -43,13 +43,17 @@ export const staLta: PanelDef = {
     }
 
     const d = f.data;
-    // Y range: 0 to max(threshold + headroom, peak + headroom). Always
-    // include the threshold line in the visible area even if no trace
-    // value comes close to it.
+    // Y axis scales to the trace itself — the threshold is a reference
+    // overlay, not part of the data, so it shouldn't drag the axis up
+    // when the trace is quiet. When threshold falls inside the auto-
+    // ranged window, it draws as a dashed line in place. When it's
+    // above, a compact "thr X.X ↑" annotation sits at the top edge
+    // so the user still knows where the trigger level is.
     let peak = 0;
     for (const v of d) if (v > peak) peak = v;
-    const yMax = Math.max(peak, f.threshold) * 1.15;
+    const yMax = Math.max(peak * 1.2, 0.5);
     const yMin = 0;
+    const thresholdVisible = f.threshold <= yMax;
 
     drawYAxis(ctx, w, h, yMin, yMax, { unit: 'STA/LTA', ticks: 4 });
     drawTimeAxisSecondsBack(ctx, w, h, f.windowS, { ticks: 5 });
@@ -60,46 +64,57 @@ export const staLta: PanelDef = {
     const xForI = (i: number) => pb.left + (i / Math.max(1, d.length - 1)) * pb.width;
     const yForV = (v: number) => pb.top + ((yMax - v) / span) * pb.height;
 
-    // Fill polygon for above-threshold regions (red wash).
-    ctx.fillStyle = COLOR_FILL;
-    let inRegion = false;
-    let path: [number, number][] = [];
-    for (let i = 0; i < d.length; i++) {
-      const v = d[i];
-      if (v >= f.threshold && !inRegion) {
-        inRegion = true;
-        path = [[xForI(i), yForV(f.threshold)], [xForI(i), yForV(v)]];
-      } else if (v >= f.threshold) {
-        path.push([xForI(i), yForV(v)]);
-      } else if (inRegion) {
-        path.push([xForI(i - 1), yForV(f.threshold)]);
+    // Above-threshold red wash + dashed threshold line are only drawn
+    // when the threshold is actually inside the visible Y range.
+    if (thresholdVisible) {
+      ctx.fillStyle = COLOR_FILL;
+      let inRegion = false;
+      let path: [number, number][] = [];
+      for (let i = 0; i < d.length; i++) {
+        const v = d[i];
+        if (v >= f.threshold && !inRegion) {
+          inRegion = true;
+          path = [[xForI(i), yForV(f.threshold)], [xForI(i), yForV(v)]];
+        } else if (v >= f.threshold) {
+          path.push([xForI(i), yForV(v)]);
+        } else if (inRegion) {
+          path.push([xForI(i - 1), yForV(f.threshold)]);
+          ctx.beginPath();
+          ctx.moveTo(path[0][0], path[0][1]);
+          for (const p of path.slice(1)) ctx.lineTo(p[0], p[1]);
+          ctx.closePath();
+          ctx.fill();
+          inRegion = false;
+        }
+      }
+      if (inRegion) {
+        path.push([xForI(d.length - 1), yForV(f.threshold)]);
         ctx.beginPath();
         ctx.moveTo(path[0][0], path[0][1]);
         for (const p of path.slice(1)) ctx.lineTo(p[0], p[1]);
         ctx.closePath();
         ctx.fill();
-        inRegion = false;
       }
-    }
-    if (inRegion) {
-      path.push([xForI(d.length - 1), yForV(f.threshold)]);
-      ctx.beginPath();
-      ctx.moveTo(path[0][0], path[0][1]);
-      for (const p of path.slice(1)) ctx.lineTo(p[0], p[1]);
-      ctx.closePath();
-      ctx.fill();
-    }
 
-    // Threshold line.
-    ctx.strokeStyle = COLOR_THRESHOLD;
-    ctx.lineWidth = 1;
-    ctx.setLineDash([4, 3]);
-    const yT = yForV(f.threshold);
-    ctx.beginPath();
-    ctx.moveTo(pb.left, yT);
-    ctx.lineTo(pb.right, yT);
-    ctx.stroke();
-    ctx.setLineDash([]);
+      ctx.strokeStyle = COLOR_THRESHOLD;
+      ctx.lineWidth = 1;
+      ctx.setLineDash([4, 3]);
+      const yT = yForV(f.threshold);
+      ctx.beginPath();
+      ctx.moveTo(pb.left, yT);
+      ctx.lineTo(pb.right, yT);
+      ctx.stroke();
+      ctx.setLineDash([]);
+    } else {
+      // Threshold lives above the visible window — annotate it at the
+      // top-right of the plot so the user still knows where it is.
+      ctx.fillStyle = COLOR_THRESHOLD;
+      ctx.font = '10px ui-monospace, SFMono-Regular, Menlo, monospace';
+      ctx.textAlign = 'right';
+      ctx.textBaseline = 'top';
+      ctx.fillText(`thr ${f.threshold.toFixed(1)} ↑`,
+                   pb.right - 4, pb.top + 16);
+    }
 
     // Trace itself — slightly thicker line so it reads against the
     // dashed threshold and dark background.
