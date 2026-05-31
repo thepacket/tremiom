@@ -97,6 +97,38 @@ workers/
 ARCHITECTURE.md           Design doc + roadmap
 ```
 
+## Private-deployment token
+
+When `TREMIOM_TOKEN` is set in the environment, **every** HTTP and
+WebSocket request must present a matching cookie or one-time URL
+parameter. Use this on shared/public infrastructure (e.g. fly.io) to
+keep the instance to yourself.
+
+```bash
+# Pick a secret (any string; longer is better)
+openssl rand -hex 32
+# → eg 7f1b…ab98
+
+# On fly.io:
+fly secrets set TREMIOM_TOKEN=7f1b…ab98
+fly deploy   # only needed if the app is currently running an older image
+```
+
+Then visit your instance with the token appended once:
+
+```
+https://tremiom.fly.dev/?token=7f1b…ab98
+```
+
+The server validates, sets a 1-year `HttpOnly; SameSite=Lax; Secure`
+cookie, and redirects to a clean URL. Subsequent visits don't need
+the parameter; the cookie does the work. To revoke access, change
+`TREMIOM_TOKEN` (and re-deploy) — every existing cookie becomes
+invalid immediately.
+
+When the env var is unset, the server is open (the default for local
+dev and self-hosting).
+
 ## Deploy (fly.io)
 
 Same shape as Radiom: a [`Dockerfile`](./Dockerfile) and a

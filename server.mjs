@@ -23,6 +23,115 @@ const PORT = +(process.env.PORT || 8080);
 const DIST = resolve(new URL('./dist', import.meta.url).pathname);
 const PYTHON = process.env.TREMIOM_PYTHON || resolve('workers/.venv/bin/python');
 
+// ─── Whole-app token gate ─────────────────────────────────────────────────
+// When TREMIOM_TOKEN is set (e.g. `fly secrets set TREMIOM_TOKEN=…`), every
+// HTTP and WebSocket request must present a matching cookie. A one-time
+// `?token=<value>` URL parameter installs the cookie and redirects to a
+// clean URL, so the secret only has to be pasted once. Unset = open,
+// matching dev / self-host. Designed for a single-user deployment; no
+// rate-limiting or per-user identity beyond "owns the secret".
+const TREMIOM_TOKEN = (process.env.TREMIOM_TOKEN || '').trim();
+const AUTH_COOKIE = 'tremiom_auth';
+const AUTH_COOKIE_MAX_AGE = 365 * 24 * 60 * 60; // 1 year
+if (!TREMIOM_TOKEN) {
+  console.warn('[auth] TREMIOM_TOKEN not set — server is OPEN. Set it to require a token on every request.');
+} else {
+  console.log('[auth] TREMIOM_TOKEN gate active');
+}
+
+function getCookie(req, name) {
+  const raw = req.headers.cookie || '';
+  for (const part of raw.split(';')) {
+    const eq = part.indexOf('=');
+    if (eq < 0) continue;
+    const k = part.slice(0, eq).trim();
+    if (k === name) return decodeURIComponent(part.slice(eq + 1).trim());
+  }
+  return null;
+}
+
+/** Constant-time string compare to avoid timing side channels. */
+function tokenEqual(a, b) {
+  if (typeof a !== 'string' || typeof b !== 'string') return false;
+  if (a.length !== b.length) return false;
+  let r = 0;
+  for (let i = 0; i < a.length; i++) r |= a.charCodeAt(i) ^ b.charCodeAt(i);
+  return r === 0;
+}
+
+function tokenFromUrl(req) {
+  try {
+    return new URL(req.url || '/', 'http://x').searchParams.get('token') || '';
+  } catch { return ''; }
+}
+
+function isAuthorized(req) {
+  if (!TREMIOM_TOKEN) return true;
+  const c = getCookie(req, AUTH_COOKIE);
+  if (c && tokenEqual(c, TREMIOM_TOKEN)) return true;
+  const q = tokenFromUrl(req);
+  return q ? tokenEqual(q, TREMIOM_TOKEN) : false;
+}
+
+function clientIp(req) {
+  return (
+    (req.headers['fly-client-ip'] || '').trim() ||
+    (req.headers['x-forwarded-for'] || '').split(',')[0].trim() ||
+    req.socket?.remoteAddress || ''
+  );
+}
+
+function isHttps(req) {
+  return (req.headers['x-forwarded-proto'] || '').trim() === 'https'
+      || req.socket?.encrypted === true;
+}
+
+/** Set the auth cookie + 302 to a token-stripped URL. */
+function installCookieAndRedirect(req, res) {
+  const u = new URL(req.url || '/', 'http://x');
+  u.searchParams.delete('token');
+  const dest = (u.pathname + (u.search || '')) || '/';
+  const flags = [
+    `${AUTH_COOKIE}=${encodeURIComponent(TREMIOM_TOKEN)}`,
+    'HttpOnly',
+    'SameSite=Lax',
+    `Max-Age=${AUTH_COOKIE_MAX_AGE}`,
+    'Path=/',
+  ];
+  if (isHttps(req)) flags.push('Secure');
+  res.writeHead(302, {
+    'set-cookie': flags.join('; '),
+    'location': dest,
+    'cache-control': 'no-store',
+  });
+  res.end();
+}
+
+const UNAUTHORIZED_HTML = `<!doctype html><html lang="en"><head>
+<meta charset="utf-8"><title>tremiom — 401</title>
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<style>
+  html,body{margin:0;height:100%;background:#0d0d0d;color:#e6e6e6;
+    font-family:ui-sans-serif,system-ui,sans-serif}
+  body{display:grid;place-items:center}
+  main{text-align:center}
+  h1{color:#ff8c1a;font-size:18px;margin:0 0 8px;font-weight:600}
+  p{color:#8a8a8a;font-size:13px;margin:0;max-width:36ch}
+</style></head><body><main>
+<h1>tremiom</h1>
+<p>This instance is private. Append <code style="color:#fff">?token=…</code> to the URL to authenticate.</p>
+</main></body></html>`;
+
+function sendUnauthorized(req, res) {
+  console.warn(`[auth] 401 ${req.method} ${req.url} ip=${clientIp(req)}`);
+  res.writeHead(401, {
+    'content-type': 'text/html; charset=utf-8',
+    'cache-control': 'no-store',
+    'www-authenticate': 'Token realm="tremiom"',
+  });
+  res.end(UNAUTHORIZED_HTML);
+}
+
 const MIME = {
   '.html': 'text/html; charset=utf-8',
   '.js':   'text/javascript; charset=utf-8',
@@ -289,6 +398,17 @@ function parseFdsnStationText(text, limit) {
 }
 
 const httpServer = http.createServer((req, res) => {
+  // Whole-app token gate. Any URL with `?token=<correct>` swaps the
+  // query parameter for a cookie and redirects to the clean URL.
+  if (TREMIOM_TOKEN) {
+    const urlToken = tokenFromUrl(req);
+    if (urlToken && tokenEqual(urlToken, TREMIOM_TOKEN)) {
+      installCookieAndRedirect(req, res);
+      return;
+    }
+    if (!isAuthorized(req)) { sendUnauthorized(req, res); return; }
+  }
+
   if (req.url?.startsWith('/api/events')) {
     handleUsgs(req, res);
     return;
@@ -380,6 +500,12 @@ function resubscribeAll() {
 const wss = new WebSocketServer({ noServer: true });
 
 httpServer.on('upgrade', (req, socket, head) => {
+  if (TREMIOM_TOKEN && !isAuthorized(req)) {
+    console.warn(`[auth] 401 WS ${req.url} ip=${clientIp(req)}`);
+    socket.write('HTTP/1.1 401 Unauthorized\r\nConnection: close\r\n\r\n');
+    socket.destroy();
+    return;
+  }
   if (req.url?.startsWith('/ws/main')) {
     wss.handleUpgrade(req, socket, head, (ws) => wss.emit('connection', ws, req));
   } else {
