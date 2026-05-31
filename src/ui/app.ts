@@ -17,6 +17,7 @@ import { mountPanelPicker } from './panel-picker';
 import { mountAlertPicker } from './alert-picker';
 import { alerts } from './alerts';
 import { feedNetwork, resetNetwork, networkGroup } from '../panels/network';
+import { pinTrace } from '../panels/clipboard';
 import type { SeismicEvent } from '../data/events';
 
 export function mountApp(root: HTMLElement, version: string): void {
@@ -35,6 +36,7 @@ export function mountApp(root: HTMLElement, version: string): void {
     <span class="muted">units:</span>
     <span id="units-mount"></span>
     <span id="panel-picker-mount"></span>
+    <button class="pin-btn" id="pin-btn" title="Pin current trace to the Wave clipboard">📌 Pin</button>
     <span id="alert-picker-mount"></span>
     <button class="live-btn hidden" id="live-btn" title="Return to live mode">← Live</button>
     <span class="muted" id="conn">connecting…</span>
@@ -59,6 +61,7 @@ export function mountApp(root: HTMLElement, version: string): void {
   const subscribedAt = Date.now();
   let currentFilter: FilterSpec = DEFAULT_FILTER;
   let currentUnits: string = DEFAULT_UNITS;
+  let latestRawScope: { windowS?: number; unit?: string; data: number[] } | null = null;
 
   // Drum overlay state — events + station coords for predicted-arrival markers.
   let currentEvents: SeismicEvent[] = [];
@@ -124,6 +127,9 @@ export function mountApp(root: HTMLElement, version: string): void {
     // separate per-group-station rsam subscriptions below).
     const set = new Set(activePanels.filter((p) => p !== 'network'));
     if (alerts.isEnabled()) set.add('sta-lta');
+    // Clipboard pins raw-scope snapshots, so keep that stream live while
+    // the clipboard panel is mounted even if raw-scope isn't displayed.
+    if (activePanels.includes('clipboard')) set.add('raw-scope');
     return [...set];
   }
   function resubscribe() {
@@ -171,6 +177,11 @@ export function mountApp(root: HTMLElement, version: string): void {
         dashboard.setFrame('network', frame); // trigger a redraw
       }
       if (fstation !== currentStation) return;
+      // Remember the latest raw-scope frame so the Pin button can
+      // snapshot it into the wave clipboard.
+      if (panelId === 'raw-scope') {
+        latestRawScope = frame as { windowS?: number; unit?: string; data: number[] };
+      }
       if (firstFrameAt === null) {
         firstFrameAt = Date.now();
         const el = document.getElementById('conn');
@@ -315,6 +326,19 @@ export function mountApp(root: HTMLElement, version: string): void {
 
   document.getElementById('live-btn')?.addEventListener('click', () => pickEvent(null));
   document.getElementById('settings-btn')?.addEventListener('click', openSettings);
+
+  document.getElementById('pin-btn')?.addEventListener('click', () => {
+    if (!latestRawScope?.data?.length) return;
+    pinTrace({
+      station: currentStation,
+      capturedMs: Date.now(),
+      windowS: latestRawScope.windowS ?? 10,
+      unit: latestRawScope.unit ?? 'counts',
+      data: latestRawScope.data.slice(),
+    });
+    // If the clipboard panel is up, nudge it to redraw immediately.
+    dashboard.setFrame('clipboard', {});
+  });
 
   // Initial overlay + subscription. mountDashboard didn't fire
   // onActiveChanged during construction (would TDZ-crash on `client`),

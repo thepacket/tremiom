@@ -424,6 +424,18 @@ html, body {
   cursor: pointer;
 }
 .panel-picker-btn:hover { border-color: var(--accent); color: var(--accent); }
+
+.pin-btn {
+  background: #1a1a1a;
+  color: var(--fg);
+  border: 1px solid var(--panel-border);
+  border-radius: 3px;
+  padding: 2px 8px;
+  font: inherit;
+  font-size: 12px;
+  cursor: pointer;
+}
+.pin-btn:hover { border-color: var(--accent); color: var(--accent); }
 .panel-picker-pop {
   position: absolute;
   top: 28px;
