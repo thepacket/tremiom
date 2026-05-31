@@ -436,6 +436,29 @@ async function handleEventMagnitude(req, res) {
   proc.stdin.end();
 }
 
+async function handleEventLocate(req, res) {
+  if (req.method !== 'POST') { res.writeHead(405).end(); return; }
+  let body;
+  try { body = await readBody(req); } catch { res.writeHead(400).end(); return; }
+  const proc = spawn(PYTHON, ['workers/event_locate.py'], {
+    stdio: ['pipe', 'pipe', 'inherit'],
+  });
+  let stdout = '';
+  const timer = setTimeout(() => proc.kill('SIGTERM'), 120_000);
+  proc.stdout.on('data', (c) => { stdout += c.toString('utf8'); });
+  proc.on('exit', (code) => {
+    clearTimeout(timer);
+    if (code !== 0) {
+      res.writeHead(502, { 'content-type': 'application/json' });
+      res.end(JSON.stringify({ ok: false, error: 'locate failed', code })); return;
+    }
+    res.writeHead(200, { 'content-type': 'application/json' });
+    res.end(stdout);
+  });
+  proc.stdin.write(body);
+  proc.stdin.end();
+}
+
 async function handleEventExport(req, res) {
   if (req.method !== 'POST') { res.writeHead(405).end(); return; }
   let body;
@@ -718,6 +741,10 @@ const httpServer = http.createServer((req, res) => {
   }
   if (req.url?.startsWith('/api/event/magnitude')) {
     handleEventMagnitude(req, res);
+    return;
+  }
+  if (req.url?.startsWith('/api/event/locate')) {
+    handleEventLocate(req, res);
     return;
   }
   if (req.url?.startsWith('/api/event/waveforms')) {

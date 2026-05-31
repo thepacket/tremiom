@@ -37,6 +37,7 @@ export function mountRecordSection(parent: HTMLElement): RecordSectionHandle {
         <button class="rs-btn pick-btn" data-pick="P" title="Click a trace to place a P pick">Pick P</button>
         <button class="rs-btn pick-btn" data-pick="S" title="Click a trace to place an S pick">Pick S</button>
         <button class="rs-btn" data-pick="clear" title="Clear picks for this event">Clear</button>
+        <button class="rs-btn" data-pick="locate" title="Relocate from P picks (needs ≥4)">Locate</button>
         <button class="rs-btn" data-pick="quakeml" title="Download picks as QuakeML">⤓ QuakeML</button>
       </span>
       <span class="rs-export hidden">
@@ -128,6 +129,8 @@ export function mountRecordSection(parent: HTMLElement): RecordSectionHandle {
       } else if (action === 'clear') {
         picks.clear();
         draw();
+      } else if (action === 'locate') {
+        void locateFromPicks();
       } else if (action === 'quakeml') {
         exportQuakeML();
       }
@@ -151,6 +154,53 @@ export function mountRecordSection(parent: HTMLElement): RecordSectionHandle {
     picks.set(st.nslc, cur);
     draw();
   });
+
+  async function locateFromPicks() {
+    if (!currentEvent || !waveforms) return;
+    const e = currentEvent;
+    // Build P picks with absolute time + station coords (from the
+    // fetched waveform metadata).
+    const coordByNslc = new Map(waveforms.stations.map((s) => [s.nslc, s]));
+    const pPicks: Array<{ lat: number; lon: number; tMs: number }> = [];
+    for (const [nslc, ps] of picks) {
+      if (ps.P == null) continue;
+      const st = coordByNslc.get(nslc);
+      if (!st) continue;
+      pPicks.push({ lat: st.lat, lon: st.lon, tMs: e.timeMs + ps.P * 1000 });
+    }
+    if (pPicks.length < 4) {
+      setStatus(`need ≥4 P picks to locate (have ${pPicks.length})`, 'error');
+      return;
+    }
+    setStatus('relocating from picks…');
+    try {
+      const r = await fetch('/api/event/locate', {
+        method: 'POST', headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ picks: pPicks, priorLat: e.lat, priorLon: e.lon }),
+      });
+      const d = await r.json() as {
+        ok?: boolean; error?: string; lat?: number; lon?: number;
+        depthKm?: number; rmsSec?: number; n?: number;
+      };
+      if (!d.ok) { setStatus(`locate failed: ${d.error || 'unknown'}`, 'error'); return; }
+      // Offset from the catalog location, as a quality cross-check.
+      const offKm = greatCircleKm(e.lat, e.lon, d.lat!, d.lon!);
+      setStatus(
+        `tremiom location: ${d.lat!.toFixed(2)}°, ${d.lon!.toFixed(2)}°, ` +
+        `${d.depthKm} km · RMS ${d.rmsSec}s · n=${d.n} · ${offKm.toFixed(0)} km from catalog`,
+        'info');
+    } catch (err) {
+      setStatus(`locate failed: ${(err as Error).message}`, 'error');
+    }
+  }
+
+  function greatCircleKm(lat1: number, lon1: number, lat2: number, lon2: number): number {
+    const R = 6371, toRad = (x: number) => x * Math.PI / 180;
+    const p1 = toRad(lat1), p2 = toRad(lat2);
+    const dp = toRad(lat2 - lat1), dl = toRad(lon2 - lon1);
+    const a = Math.sin(dp/2)**2 + Math.cos(p1)*Math.cos(p2)*Math.sin(dl/2)**2;
+    return 2 * R * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+  }
 
   function exportQuakeML() {
     if (!currentEvent || !picks.size) {
