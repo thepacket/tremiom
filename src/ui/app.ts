@@ -115,7 +115,10 @@ export function mountApp(root: HTMLElement, version: string): void {
     if (clientReady) client.subscribe(currentStation, activePanels);
   }
   let clientReady = false;
-  const dashboard: DashboardHandle = mountDashboard(dashHost, { onActiveChanged });
+  const dashboard: DashboardHandle = mountDashboard(dashHost, {
+    onActiveChanged,
+    stationName: () => currentStation,
+  });
   activePanels = dashboard.activePanels();
 
   // ── Transport ───────────────────────────────────────────────────────

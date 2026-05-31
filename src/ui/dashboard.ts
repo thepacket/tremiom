@@ -51,7 +51,11 @@ const DEFAULT_LAYOUT: GridStackWidget[] = [
 
 export function mountDashboard(
   parent: HTMLElement,
-  opts: { onActiveChanged(panels: string[]): void },
+  opts: {
+    onActiveChanged(panels: string[]): void;
+    /** Current station NSLC, for PNG export filenames. */
+    stationName?: () => string;
+  },
 ): DashboardHandle {
   const root = document.createElement('div');
   root.className = 'grid-stack';
@@ -82,6 +86,7 @@ export function mountDashboard(
     panelEl.innerHTML = `
       <header class="panel-header">
         <span class="panel-title">${escapeHtml(def.label)}</span>
+        <button class="panel-png" title="Save panel as PNG" aria-label="Save PNG">⤓</button>
         <button class="panel-remove" title="Remove panel" aria-label="Remove">×</button>
       </header>
     `;
@@ -128,7 +133,31 @@ export function mountDashboard(
       removePanel(id);
     });
 
+    item.querySelector('.panel-png')!.addEventListener('click', (e) => {
+      e.stopPropagation();
+      savePanelPng(id, def.id);
+    });
+
     mounted.set(id, { id, panel: def, el: item, canvas, ctx, ro });
+  }
+
+  function savePanelPng(id: string, panelId: string): void {
+    const m = mounted.get(id);
+    if (!m) return;
+    // The canvas already holds the fully-rendered plot (axes, labels,
+    // traces) at device-pixel resolution, so toBlob captures everything.
+    m.canvas.toBlob((blob) => {
+      if (!blob) return;
+      const station = (opts.stationName?.() || 'station').replace(/[^A-Za-z0-9._-]/g, '_');
+      const stamp = new Date().toISOString().replace(/[:.]/g, '-').slice(0, 19);
+      const a = document.createElement('a');
+      a.href = URL.createObjectURL(blob);
+      a.download = `tremiom_${station}_${panelId}_${stamp}.png`;
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      setTimeout(() => URL.revokeObjectURL(a.href), 1000);
+    }, 'image/png');
   }
 
   function removePanel(id: string): void {

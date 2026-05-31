@@ -333,6 +333,17 @@ html, body {
   cursor: pointer;
 }
 .panel-remove:hover { color: #ff8a80; border-color: #c0392b; background: #2a1414; }
+.panel-png {
+  background: transparent;
+  border: 1px solid transparent;
+  color: var(--muted);
+  font-size: 13px;
+  line-height: 1;
+  padding: 0 4px;
+  border-radius: 3px;
+  cursor: pointer;
+}
+.panel-png:hover { color: var(--accent); border-color: var(--accent); }
 
 .panel canvas {
   display: block;
