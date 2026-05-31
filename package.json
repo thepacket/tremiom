@@ -1,0 +1,27 @@
+{
+  "name": "tremiom",
+  "private": true,
+  "version": "0.0.1",
+  "license": "GPL-3.0-or-later",
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "dev:http": "TREMIOM_HTTP=1 vite --port 5174 --strictPort",
+    "build": "tsc -b && vite build",
+    "preview": "vite preview",
+    "start": "node server.mjs",
+    "workers:install": "python3 -m venv workers/.venv && workers/.venv/bin/pip install -r workers/requirements.txt",
+    "workers:ingestor": "workers/.venv/bin/python workers/ingestor.py",
+    "workers:panels": "workers/.venv/bin/python workers/panels.py"
+  },
+  "dependencies": {
+    "ws": "^8.20.0"
+  },
+  "devDependencies": {
+    "@types/ws": "^8.18.1",
+    "typescript": "^5.6.0",
+    "vite": "^5.4.0",
+    "vite-plugin-mkcert": "^2.0.0",
+    "vite-plugin-pwa": "^0.20.0"
+  }
+}
