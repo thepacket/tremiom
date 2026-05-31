@@ -36,6 +36,10 @@ export interface SeismicEvent {
   url: string;         // USGS event page
   tsunami: boolean;
   alert: string | null; // "green"|"yellow"|"orange"|"red"
+  felt: number | null; // number of DYFI felt reports
+  cdi: number | null;  // max reported (community) intensity, MMI scale
+  mmi: number | null;  // max estimated instrumental intensity, MMI scale
+  sig: number | null;  // USGS "significance" score
 }
 
 interface UsgsGeoJSON {
@@ -48,6 +52,10 @@ interface UsgsGeoJSON {
       url: string;
       tsunami: number;
       alert: string | null;
+      felt: number | null;
+      cdi: number | null;
+      mmi: number | null;
+      sig: number | null;
     };
     geometry: { coordinates: [number, number, number] }; // [lon, lat, depthKm]
   }>;
@@ -65,7 +73,31 @@ export function parseUsgs(json: UsgsGeoJSON): SeismicEvent[] {
     url: f.properties.url,
     tsunami: !!f.properties.tsunami,
     alert: f.properties.alert,
+    felt: f.properties.felt ?? null,
+    cdi: f.properties.cdi ?? null,
+    mmi: f.properties.mmi ?? null,
+    sig: f.properties.sig ?? null,
   }));
+}
+
+/** Roman-numeral MMI intensity (I–XII) for a CDI/MMI decimal value. */
+export function mmiRoman(v: number | null): string {
+  if (v == null || v <= 0) return '';
+  const r = ['', 'I', 'II', 'III', 'IV', 'V', 'VI', 'VII', 'VIII', 'IX', 'X', 'XI', 'XII'];
+  return r[Math.min(12, Math.round(v))] || '';
+}
+
+/** USGS ShakeMap intensity color for an MMI value. */
+export function intensityColor(v: number | null): string {
+  if (v == null || v <= 0) return '#555';
+  if (v >= 9) return '#a50026';
+  if (v >= 8) return '#d73027';
+  if (v >= 7) return '#f46d43';
+  if (v >= 6) return '#fdae61';
+  if (v >= 5) return '#fee08b';
+  if (v >= 4) return '#d9ef8b';
+  if (v >= 3) return '#a6d96a';
+  return '#66bd63';
 }
 
 /** Color bucket for a magnitude. Used for the mag badge in the list. */

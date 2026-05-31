@@ -264,6 +264,17 @@ html, body {
 .event .meta { display: grid; gap: 1px; min-width: 0; }
 .event .place { font-size: 12px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .event .small { font-size: 11px; }
+.felt-chip {
+  display: inline-block;
+  margin-left: 5px;
+  padding: 0 4px;
+  border-radius: 3px;
+  font-size: 9px;
+  font-weight: 700;
+  color: #111;
+  vertical-align: middle;
+  font-variant-numeric: tabular-nums;
+}
 
 .topbar {
   display: flex;

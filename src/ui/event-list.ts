@@ -1,7 +1,7 @@
 import {
   type SeismicEvent, type UsgsFeed,
   USGS_FEEDS, DEFAULT_FEED,
-  magColor, ago,
+  magColor, ago, mmiRoman, intensityColor,
 } from '../data/events';
 import { EventFeedPoller } from '../transport/events';
 
@@ -59,13 +59,23 @@ export function mountEventList(
       const m = e.mag == null ? '—' : e.mag.toFixed(1);
       const c = magColor(e.mag);
       const sel = e.id === selectedId ? ' selected' : '';
+      // Felt-report badge: community intensity (CDI) preferred, else
+      // instrumental (MMI). Shown as a roman-numeral chip, ShakeMap
+      // colored. Plus the raw felt-report count when present.
+      const intensity = e.cdi ?? e.mmi;
+      const roman = mmiRoman(intensity);
+      const feltChip = roman
+        ? `<span class="felt-chip" style="background:${intensityColor(intensity)}" title="Max intensity ${roman}${e.felt ? ` · ${e.felt} felt reports` : ''}">${roman}</span>`
+        : '';
+      const feltText = e.felt ? ` · felt ×${e.felt}` : '';
       return `
         <li class="event${sel}" data-id="${e.id}">
           <span class="mag" style="background:${c}">${m}</span>
           <span class="meta">
-            <span class="place">${escapeHtml(e.place)}</span>
+            <span class="place">${escapeHtml(e.place)}${feltChip}</span>
             <span class="muted small">
               ${ago(e.timeMs, now)} · ${e.depthKm.toFixed(0)} km depth
+              ${feltText}
               ${e.tsunami ? ' · ⚠ tsunami' : ''}
               ${e.alert ? ` · alert ${e.alert}` : ''}
             </span>
