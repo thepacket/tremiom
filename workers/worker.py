@@ -37,6 +37,7 @@ from __future__ import annotations
 import argparse
 import json
 import math
+import socket
 import sys
 import threading
 import time
@@ -60,8 +61,14 @@ except ImportError:
 
 # ── Configuration ──────────────────────────────────────────────────────────
 
-SEEDLINK_HOST = "rtserve.iris.washington.edu"
-SEEDLINK_PORT = 18000
+# Per-network SeedLink upstream routing. AM stations (Raspberry Shake
+# citizen seismometers) live on a different SeedLink server than the
+# IRIS/EarthScope global network; everything else (IU, II, GE, IV, US,
+# AU, NZ, …) is on IRIS rtserve.
+DEFAULT_SEEDLINK = ("rtserve.iris.washington.edu", 18000)
+NETWORK_UPSTREAMS: Dict[str, tuple] = {
+    "AM": ("data.raspberryshake.org", 18000),
+}
 
 RING_SECONDS = 120          # per-channel buffer length
 SPECTROGRAM_WIN_S = 8.0     # STFT window for the spectrogram column
@@ -240,12 +247,24 @@ _subscriptions: Dict[str, Set[str]] = defaultdict(set)  # station -> set of pane
 # A small (~1 s) debounce coalesces bursts of subscribe calls so a user
 # adding multiple stations in quick succession doesn't trigger N restarts.
 
-class SeedLinkManager:
-    """Owns the (single) SeedLink connection, restarts on stream-set changes."""
+def _tcp_reachable(host: str, port: int, timeout_s: float = 5.0) -> bool:
+    """Quick TCP connect check. Returns True if the connect succeeds
+    within `timeout_s`, False on any failure (DNS, timeout, refused, …)."""
+    try:
+        with socket.create_connection((host, port), timeout=timeout_s):
+            return True
+    except OSError:
+        return False
+
+
+class SeedLinkConnection:
+    """One connection to one SeedLink upstream. Restarts on stream-set changes."""
 
     DEBOUNCE_S = 0.8
 
-    def __init__(self, ring: RingBuffer) -> None:
+    def __init__(self, host: str, port: int, ring: RingBuffer) -> None:
+        self._host = host
+        self._port = port
         self._ring = ring
         self._lock = threading.Lock()
         self._client = None
@@ -253,8 +272,8 @@ class SeedLinkManager:
         self._desired: Set[tuple] = set()   # set of (net, sta, cha)
         self._active: Set[tuple] = set()
         self._restart_at: float | None = None
-        threading.Thread(target=self._supervisor, name="sl-supervisor",
-                         daemon=True).start()
+        threading.Thread(target=self._supervisor,
+                         name=f"sl-{host}-supervisor", daemon=True).start()
 
     def _on_data(self, trace) -> None:
         nslc = (f"{trace.stats.network}.{trace.stats.station}."
@@ -269,7 +288,7 @@ class SeedLinkManager:
             try:
                 net, sta, _loc, cha = s.split(".")
             except ValueError:
-                log(f"sl: bad nslc {s!r}")
+                log(f"sl[{self._host}]: bad nslc {s!r}")
                 continue
             streams.add((net, sta, cha))
         with self._lock:
@@ -306,37 +325,80 @@ class SeedLinkManager:
             self._active = set()
 
         if not desired:
-            log("sl: no streams desired — staying disconnected")
+            log(f"sl[{self._host}]: no streams desired — staying disconnected")
+            return
+
+        # Fail fast if the upstream is unreachable. easyseedlink's
+        # create_client does a synchronous TCP connect with no exposed
+        # timeout, so without this probe an unreachable host blocks the
+        # supervisor for the OS connect timeout (~75 s on macOS).
+        if not _tcp_reachable(self._host, self._port, timeout_s=6.0):
+            log(f"sl[{self._host}]: upstream unreachable — backing off 60s "
+                f"(network/firewall may be blocking outbound :{self._port})")
+            with self._lock:
+                self._restart_at = time.time() + 60.0
             return
 
         try:
             client = create_client(
-                f"{SEEDLINK_HOST}:{SEEDLINK_PORT}",
+                f"{self._host}:{self._port}",
                 on_data=self._on_data,
             )
             for net, sta, cha in desired:
                 client.select_stream(net, sta, cha)
         except Exception as e:
-            log(f"sl: create_client failed: {e!r}")
+            log(f"sl[{self._host}]: create_client failed: {e!r}")
             # Try again later.
             with self._lock:
                 self._restart_at = time.time() + 5.0
             return
 
-        log(f"sl: connecting streams={sorted(desired)}")
+        log(f"sl[{self._host}]: connecting streams={sorted(desired)}")
 
         def run() -> None:
             try:
                 client.run()
             except Exception as e:
-                log(f"sl: client.run() exited: {e!r}")
-            log("sl: client thread exited")
+                log(f"sl[{self._host}]: client.run() exited: {e!r}")
+            log(f"sl[{self._host}]: client thread exited")
 
         self._client = client
         self._active = set(desired)
-        self._thread = threading.Thread(target=run, name="seedlink",
+        self._thread = threading.Thread(target=run, name=f"seedlink-{self._host}",
                                         daemon=True)
         self._thread.start()
+
+
+class SeedLinkRouter:
+    """Top-level: partitions subscribed stations across one connection
+    per upstream, lazily creating connections as networks appear."""
+
+    def __init__(self, ring: RingBuffer) -> None:
+        self._ring = ring
+        self._connections: Dict[tuple, SeedLinkConnection] = {}
+
+    @staticmethod
+    def upstream_for(network: str) -> tuple:
+        return NETWORK_UPSTREAMS.get(network, DEFAULT_SEEDLINK)
+
+    def set_streams(self, nslcs: list[str]) -> None:
+        # Partition by upstream.
+        by_upstream: Dict[tuple, list[str]] = defaultdict(list)
+        for s in nslcs:
+            try:
+                net = s.split(".")[0]
+            except Exception:
+                continue
+            by_upstream[self.upstream_for(net)].append(s)
+
+        # Update every active upstream to either its new stream set or empty.
+        all_upstreams = set(self._connections.keys()) | set(by_upstream.keys())
+        for up in all_upstreams:
+            if up not in self._connections:
+                host, port = up
+                self._connections[up] = SeedLinkConnection(host, port, self._ring)
+                log(f"sl: new upstream {host}:{port}")
+            self._connections[up].set_streams(by_upstream.get(up, []))
 
 
 # ── Synthetic ingestion (fallback when ObsPy missing) ──────────────────────
@@ -376,7 +438,7 @@ def start_synthetic(ring: RingBuffer):
 
 # ── stdin command loop ────────────────────────────────────────────────────
 
-def cmd_loop(sl_manager) -> None:
+def cmd_loop(sl_router) -> None:
     for raw in sys.stdin:
         raw = raw.strip()
         if not raw:
@@ -398,11 +460,11 @@ def cmd_loop(sl_manager) -> None:
             log(f"-sub {station}")
         else:
             continue
-        # Recompute the SeedLink stream set from current subscriptions.
-        if sl_manager is not None:
+        # Recompute SeedLink stream sets from current subscriptions.
+        if sl_router is not None:
             with _subs_lock:
                 stations = list(_subscriptions.keys())
-            sl_manager.set_streams(stations)
+            sl_router.set_streams(stations)
 
 
 # ── Panel timer thread ────────────────────────────────────────────────────
@@ -437,23 +499,28 @@ def main() -> None:
                     help="force synthetic ingestion even if ObsPy is present")
     args = ap.parse_args()
 
-    log(f"start  obspy={HAS_OBSPY}  scipy={HAS_SCIPY}  "
-        f"synthetic={args.synthetic or not HAS_OBSPY}")
+    mode = "synthetic" if (args.synthetic or not HAS_OBSPY) else "live"
+    log(f"start  obspy={HAS_OBSPY}  scipy={HAS_SCIPY}  mode={mode}")
+    if mode == "live":
+        upstreams = {DEFAULT_SEEDLINK, *NETWORK_UPSTREAMS.values()}
+        log(f"seedlink upstreams: default={DEFAULT_SEEDLINK} "
+            f"per-network={NETWORK_UPSTREAMS} "
+            f"({len(upstreams)} unique)")
 
     ring = RingBuffer()
     if args.synthetic or not HAS_OBSPY:
         if not HAS_SCIPY:
             log("warning: scipy missing — spectrogram & PSD will be skipped")
         start_synthetic(ring)
-        sl_manager = None
+        sl_router = None
     else:
-        sl_manager = SeedLinkManager(ring)
+        sl_router = SeedLinkRouter(ring)
 
     threading.Thread(target=panel_loop, args=(ring,),
                      name="panels", daemon=True).start()
 
     # cmd_loop blocks the main thread on stdin.
-    cmd_loop(sl_manager)
+    cmd_loop(sl_router)
 
 
 if __name__ == "__main__":

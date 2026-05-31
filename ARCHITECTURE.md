@@ -195,11 +195,14 @@ panels (you already have the math from Radiom) once the skeleton is up.
 - [ ] Lower switch-latency on station change (SeedLink reconnect can take
       >30 s after `close()`; investigate keeping the connection open and
       sending a SeedLink `INFO`/restart command instead)
-- [ ] Raspberry Shake / AM-network streaming — currently the picker can
-      *find* AM stations via FDSN station-service metadata, but Tremiom
-      only connects to IRIS rtserve which doesn't carry AM streams. Add
-      a second SeedLink manager pointing at data.raspberryshake.org and
-      route AM.* subscriptions there.
+- [x] Raspberry Shake / AM-network streaming — per-network SeedLink
+      routing. AM goes to data.raspberryshake.org, everything else to
+      rtserve.iris.washington.edu. TCP reachability probe in front of
+      each upstream so blocked endpoints fail fast (6 s) instead of
+      blocking the supervisor for the OS connect timeout.
+- [ ] Surface "upstream unreachable" to the UI so the picker can warn
+      the user when their network blocks data.raspberryshake.org rather
+      than just spinning on "waiting for first sample".
 - [x] USGS event feed → event list in sidebar (60 s server-side cache,
       17 feeds, click-to-select hook in place)
 - [x] World map showing live events + curated GSN stations, click-to-pick

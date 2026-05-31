@@ -31,7 +31,7 @@ const NETWORK_PRESETS: Array<{ value: string; label: string }> = [
   { value: 'CI', label: 'CI — Caltech / SoCal' },
   { value: 'IM', label: 'IM — IMS (CTBTO)' },
   { value: 'TA', label: 'TA — USArray Transportable' },
-  { value: 'AM', label: 'AM — Raspberry Shake (metadata only, streaming planned)' },
+  { value: 'AM', label: 'AM — Raspberry Shake citizen seismometers' },
   { value: '*',  label: 'All networks' },
 ];
 
