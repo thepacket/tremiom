@@ -1,10 +1,10 @@
 # CLAUDE.md — tremiom working notes
 
-Browser-based real-time + historical **seismology** workstation. Sibling of
-`radiom` (same shape, seismic instead of SDR). Sole coder: Claude Code; human
-maintainer (Andre Paquette) directs + ships. Repo: github.com/thepacket/tremiom.
-Public, **MIT** licensed (relicensed from GPL-3.0 — no dep requires copyleft;
-ObsPy is LGPL-3.0 used as a separate pip subprocess). Deployed on fly.io.
+Browser-based real-time + historical **seismology** workstation.
+Sole coder: Claude Code; human maintainer (Andre Paquette) directs + ships.
+Repo: github.com/thepacket/tremiom. Public, **MIT** licensed (relicensed
+from GPL-3.0 — no dep requires copyleft; ObsPy is LGPL-3.0 used as a
+separate pip subprocess). Deployed on fly.io.
 
 ## Stack & architecture
 - Frontend: **Vite + TypeScript**, no framework. Canvas panels. `src/`.
@@ -25,9 +25,9 @@ ObsPy is LGPL-3.0 used as a separate pip subprocess). Deployed on fly.io.
 - **Never push without explicit OK** — wait, the maintainer was explicit early that
   push is allowed for this repo; still confirm for anything unusual.
 - **Verify in a real browser** before claiming a UI fix done. Preview tool:
-  `.claude/launch.json` has `tremiom-dev` (rooted in radiom's launch.json too).
-  Pattern: build → `preview_eval` to measure DOM rects / state, `preview_screenshot`.
-  Don't trust reasoning about layout — measure.
+  `.claude/launch.json` has `tremiom-dev`. Pattern: build → `preview_eval`
+  to measure DOM rects / state, `preview_screenshot`. Don't trust
+  reasoning about layout — measure.
 - Synthetic mode for offline UI dev: `TREMIOM_SYNTHETIC=1 PORT=8080 node server.mjs`.
 - Build check: `npx tsc -b` (typecheck) then `npx vite build`.
 

@@ -1,8 +1,8 @@
 # Tremiom — Architecture Sketch
 
 Real-time and historical seismic data viewer with scientific plots.
-Mirrors Radiom's shape: thin web client, server doing the heavy lifting,
-many small panels in a registry.
+Shape: thin web client, server doing the heavy lifting, many small
+panels in a registry.
 
 > **State:** this document captures the original v0.1 design, which still
 > describes the architecture accurately (Vite/TS client, Node WS
@@ -20,8 +20,7 @@ many small panels in a registry.
 - Display 4–6 scientific panels per station, time-aligned.
 - Browse a global event catalog (USGS / EMSC), click an event → fetch
   waveforms from N nearest stations and open per-event panels.
-- Run locally first; cloud-deploy story comes later (mirror Radiom's
-  `fly.toml` pattern when we get there).
+- Run locally first; cloud-deploy story (`fly.toml`) comes later.
 
 ## Non-goals (v0.1)
 
@@ -33,18 +32,18 @@ many small panels in a registry.
 
 ---
 
-## Stack (mirroring Radiom)
+## Stack
 
 | Layer       | Choice                              | Why                                                 |
 |-------------|-------------------------------------|-----------------------------------------------------|
-| Frontend    | Vite + TypeScript, plain modules    | Same as Radiom. No framework tax.                   |
-| Plots       | Canvas2D / WebGL (Regl or custom)   | Same canvas-heavy approach as Radiom panels.        |
-| Transport   | WebSocket (`ws`)                    | Same as Radiom.                                     |
-| Multiplexer | Node.js `server.mjs`                | Same as Radiom — fans out client subscriptions.     |
+| Frontend    | Vite + TypeScript, plain modules    | No framework tax.                                   |
+| Plots       | Canvas2D / WebGL (Regl or custom)   | Canvas-heavy: dense scientific plots, cheap redraws.|
+| Transport   | WebSocket (`ws`)                    | Bidirectional, low-overhead, native to the browser. |
+| Multiplexer | Node.js `server.mjs`                | Fans out client subscriptions; one process.         |
 | Workers     | **Python 3.11 + ObsPy**             | SeedLink client, FDSN client, all the DSP. No JS equivalent worth fighting. |
-| IPC         | Node ⇄ Python via stdio (NDJSON + framed binary) or ZeroMQ | Same shape as Radiom's csdr subprocess pattern. |
-| PWA         | `vite-plugin-pwa`                   | Same as Radiom.                                     |
-| Deploy      | Dockerfile + fly.toml (later)       | Same as Radiom.                                     |
+| IPC         | Node ⇄ Python via stdio (NDJSON + framed binary) | Plain subprocess; no broker required.   |
+| PWA         | `vite-plugin-pwa`                   | Installable, offline-capable shell.                 |
+| Deploy      | Dockerfile + fly.toml               | Single container, fly's remote builders.            |
 
 ---
 
@@ -110,8 +109,8 @@ Two frame kinds:
   directly — spectrogram column, PPSD percentile bands, hodogram XY
   points, STA/LTA series, etc.
 
-Computing panels server-side (not in the browser) is the Radiom lesson:
-the client should never see raw 100 Hz samples it doesn't need.
+Panels are computed server-side, not in the browser: the client should
+never see raw 100 Hz samples it doesn't need.
 
 ---
 
@@ -140,7 +139,7 @@ the NDJSON channel.
 
 ---
 
-## Panel registry pattern (port from Radiom)
+## Panel registry pattern
 
 Each panel is a self-contained module exporting:
 
@@ -155,7 +154,8 @@ interface Panel {
 }
 ```
 
-Same registry-from-day-1 discipline that let Radiom grow to 60+ panels.
+Registry-from-day-1 discipline keeps panels truly self-contained as the
+inventory grows.
 
 ---
 
@@ -183,13 +183,13 @@ Same registry-from-day-1 discipline that let Radiom grow to 60+ panels.
 | **Felt reports**   | DYFI (USGS) / LastQuake (EMSC) intensity dots       |
 
 Six live + five event panels = a credible v0.1. Room to add wavelet/HHT
-panels (you already have the math from Radiom) once the skeleton is up.
+panels once the skeleton is up.
 
 ---
 
 ## v0.1 milestone checklist
 
-- [x] Repo scaffold (package.json, Vite, TS, server.mjs) mirroring Radiom
+- [x] Repo scaffold (package.json, Vite, TS, server.mjs)
 - [x] Python venv + ObsPy + scipy (plain stdio framing — no pyzmq needed)
 - [x] Unified worker connecting to IRIS (`rtserve.iris.washington.edu:18000`)
 - [x] Node multiplexer with one WS endpoint and station subscriptions

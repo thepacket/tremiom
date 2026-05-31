@@ -20,10 +20,9 @@ educational help.
 All in the browser, with no install, behind an optional one-token private
 deploy.
 
-It's a sibling project to [radiom](https://github.com/andrepaquette/radiom)
-and follows the same shape: thin Vite + TypeScript client, Node WebSocket
-multiplexer, real DSP done server-side (Python / ObsPy / scipy instead of
-csdr). See [`ARCHITECTURE.md`](./ARCHITECTURE.md) for the design and
+The shape: thin Vite + TypeScript client, Node WebSocket multiplexer,
+real DSP done server-side in Python (ObsPy / scipy / numpy). See
+[`ARCHITECTURE.md`](./ARCHITECTURE.md) for the design and
 [`COMPETITIVE.md`](./COMPETITIVE.md) for how it measures up against the
 established tools.
 
@@ -234,10 +233,9 @@ dev and self-hosting).
 
 ## Deploy (fly.io)
 
-Same shape as Radiom: a [`Dockerfile`](./Dockerfile) and a
-[`fly.toml`](./fly.toml) at the project root drive everything. Fly's
-remote builders handle the Docker build, so no local Docker daemon is
-needed once you can run `fly deploy`.
+A [`Dockerfile`](./Dockerfile) and a [`fly.toml`](./fly.toml) at the
+project root drive everything. Fly's remote builders handle the Docker
+build, so no local Docker daemon is needed once you can run `fly deploy`.
 
 ### Prerequisites
 

@@ -1,6 +1,6 @@
-/** Panel registry. Same pattern as Radiom: each panel is a self-contained
- *  module that knows how to render its frame onto a canvas. Add new
- *  panels by importing them here. */
+/** Panel registry. Each panel is a self-contained module that knows how
+ *  to render its frame onto a canvas. Add new panels by importing them
+ *  here. */
 
 import { helicorder } from './helicorder';
 import { spectrogram } from './spectrogram';
