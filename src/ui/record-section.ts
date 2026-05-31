@@ -36,6 +36,7 @@ export function mountRecordSection(parent: HTMLElement): RecordSectionHandle {
       <span class="rs-pick hidden">
         <button class="rs-btn pick-btn" data-pick="P" title="Click a trace to place a P pick">Pick P</button>
         <button class="rs-btn pick-btn" data-pick="S" title="Click a trace to place an S pick">Pick S</button>
+        <button class="rs-btn" data-pick="auto" title="Auto-detect P arrivals (STA/LTA)">Auto-pick</button>
         <button class="rs-btn" data-pick="clear" title="Clear picks for this event">Clear</button>
         <button class="rs-btn" data-pick="locate" title="Relocate from P picks (needs ≥4)">Locate</button>
         <button class="rs-btn" data-pick="quakeml" title="Download picks as QuakeML">⤓ QuakeML</button>
@@ -129,6 +130,8 @@ export function mountRecordSection(parent: HTMLElement): RecordSectionHandle {
       } else if (action === 'clear') {
         picks.clear();
         draw();
+      } else if (action === 'auto') {
+        void autoPick(b as HTMLButtonElement);
       } else if (action === 'locate') {
         void locateFromPicks();
       } else if (action === 'quakeml') {
@@ -200,6 +203,37 @@ export function mountRecordSection(parent: HTMLElement): RecordSectionHandle {
     const dp = toRad(lat2 - lat1), dl = toRad(lon2 - lon1);
     const a = Math.sin(dp/2)**2 + Math.cos(p1)*Math.cos(p2)*Math.sin(dl/2)**2;
     return 2 * R * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+  }
+
+  async function autoPick(btn: HTMLButtonElement) {
+    const e = currentEvent;
+    if (!e) return;
+    const old = btn.textContent;
+    btn.textContent = 'picking…'; btn.disabled = true;
+    try {
+      const r = await fetch('/api/event/autopick', {
+        method: 'POST', headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ eventId: e.id, lat: e.lat, lon: e.lon,
+                               depthKm: e.depthKm, timeMs: e.timeMs, nStations: 6 }),
+      });
+      if (!r.ok) throw new Error(`HTTP ${r.status}`);
+      const d = await r.json() as { picks?: Array<{ nslc: string; p: number }>; error?: string };
+      if (d.error) throw new Error(d.error);
+      let n = 0;
+      for (const pk of d.picks ?? []) {
+        const cur = picks.get(pk.nslc) || {};
+        cur.P = pk.p;
+        picks.set(pk.nslc, cur);
+        n++;
+      }
+      setStatus(n ? `auto-picked P on ${n} stations — adjust as needed` : 'no arrivals detected',
+                n === 0 ? 'error' : 'info');
+      draw();
+    } catch (err) {
+      setStatus(`auto-pick failed: ${(err as Error).message}`, 'error');
+    } finally {
+      btn.textContent = old; btn.disabled = false;
+    }
   }
 
   function exportQuakeML() {
