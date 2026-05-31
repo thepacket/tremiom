@@ -1,9 +1,10 @@
 import type { PanelDef } from './registry';
+import {
+  AXIS_PAD, drawFrame, drawTimeAxisSecondsBack, drawYAxis, plotBounds,
+} from './axes';
 
-/** Helicorder — the classic drum-recorder display. One row per minute (or
- *  configurable interval), traces drawn left-to-right with time wrapping
- *  down the rows. v0.1 just shows the latest N seconds as a single trace
- *  until the server hands us proper paginated rows. */
+/** Helicorder — for v0.1 a single-trace 60 s rolling window with axes.
+ *  The classic 24-h drum display lands in a later version. */
 export const helicorder: PanelDef = {
   id: 'helicorder',
   label: 'Helicorder',
@@ -15,23 +16,35 @@ export const helicorder: PanelDef = {
     ctx.fillStyle = '#0d0d0d';
     ctx.fillRect(0, 0, w, h);
 
-    const f = frame as { data?: number[] } | null;
+    const f = frame as { data?: number[]; windowS?: number } | null;
     if (!f?.data?.length) {
       drawPlaceholder(ctx, w, h, 'waiting for frames…');
       return;
     }
 
     const data = f.data;
-    let min = Infinity, max = -Infinity;
-    for (const v of data) { if (v < min) min = v; if (v > max) max = v; }
-    const span = Math.max(1e-9, max - min);
+    const windowS = f.windowS ?? 60;
 
+    // Auto-range with small headroom so the trace doesn't touch the frame.
+    let lo = Infinity, hi = -Infinity;
+    for (const v of data) { if (v < lo) lo = v; if (v > hi) hi = v; }
+    if (!(isFinite(lo) && isFinite(hi)) || hi - lo < 1) { lo = -1; hi = 1; }
+    const headroom = (hi - lo) * 0.08;
+    const yMin = lo - headroom, yMax = hi + headroom;
+
+    drawYAxis(ctx, w, h, yMin, yMax, { unit: 'counts', ticks: 4 });
+    drawTimeAxisSecondsBack(ctx, w, h, windowS, { ticks: 5 });
+    drawFrame(ctx, w, h);
+
+    // Trace.
+    const pb = plotBounds(w, h);
+    const span = Math.max(1e-9, yMax - yMin);
     ctx.strokeStyle = '#ff8c1a';
     ctx.lineWidth = 1;
     ctx.beginPath();
     for (let i = 0; i < data.length; i++) {
-      const x = (i / (data.length - 1)) * w;
-      const y = h - ((data[i] - min) / span) * h;
+      const x = pb.left + (i / (data.length - 1)) * pb.width;
+      const y = pb.top + ((yMax - data[i]) / span) * pb.height;
       if (i === 0) ctx.moveTo(x, y); else ctx.lineTo(x, y);
     }
     ctx.stroke();
@@ -45,3 +58,6 @@ function drawPlaceholder(ctx: CanvasRenderingContext2D, w: number, h: number, ms
   ctx.textBaseline = 'middle';
   ctx.fillText(msg, w / 2, h / 2);
 }
+
+// Re-export so unused-imports lint doesn't complain in some builds.
+void AXIS_PAD;

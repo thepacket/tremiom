@@ -1,4 +1,7 @@
 import type { PanelDef } from './registry';
+import {
+  AXIS_PAD, COLOR_LABEL, drawFrame, niceStep, plotBounds,
+} from './axes';
 
 /** Spectrogram — sliding STFT columns. Server sends one column per frame
  *  with dB values and a frequency axis. v0.1 keeps the last N columns in
@@ -49,37 +52,75 @@ export const spectrogram: PanelDef = {
     }
 
     const cols = ring.length;
-    const colW = w / cols;
     const bins = ring[ring.length - 1].data.length;
-    const rowH = h / bins;
+    const fMin = ring[ring.length - 1].fMinHz;
+    const fMax = ring[ring.length - 1].fMaxHz;
+    const pb = plotBounds(w, h);
+    const colW = pb.width / cols;
+    const rowH = pb.height / bins;
 
     // Auto-range from the accumulated ring. Raw IRIS counts give PSD
     // values in the tens of dB (positive), so a fixed range can't work
     // across instrument-response-free streams. Trim 2% from each tail
     // to keep outliers from washing out contrast.
     const [dbMin, dbMax] = percentileRange(ring, 0.02, 0.98);
-    const span = Math.max(1e-3, dbMax - dbMin);
+    const dbSpan = Math.max(1e-3, dbMax - dbMin);
 
+    // Render the heat-map columns inside the plot area.
     for (let x = 0; x < cols; x++) {
       const col = ring[x].data;
-      const px = x * colW;
+      const px = pb.left + x * colW;
       for (let b = 0; b < bins; b++) {
         const db = col[b];
-        const n = Math.max(0, Math.min(1, (db - dbMin) / span));
+        const n = Math.max(0, Math.min(1, (db - dbMin) / dbSpan));
         ctx.fillStyle = colormap(n);
-        const py = h - (b + 1) * rowH;
+        const py = pb.top + pb.height - (b + 1) * rowH;
         ctx.fillRect(px, py, Math.ceil(colW), Math.ceil(rowH));
       }
     }
 
-    // dB range readout (bottom-right).
-    ctx.fillStyle = '#cfd2d4';
+    // Frequency Y-axis (linear from fMin to fMax).
     ctx.font = '10px ui-monospace, SFMono-Regular, Menlo, monospace';
+    ctx.fillStyle = COLOR_LABEL;
     ctx.textAlign = 'right';
-    ctx.textBaseline = 'bottom';
-    ctx.fillText(`${dbMin.toFixed(0)} … ${dbMax.toFixed(0)} dB`, w - 4, h - 2);
+    ctx.textBaseline = 'middle';
+    const fSpan = Math.max(1e-9, fMax - fMin);
+    const fStep = niceStep(fSpan, 4);
+    for (let v = Math.ceil(fMin / fStep) * fStep; v <= fMax + 1e-9; v += fStep) {
+      const y = pb.top + ((fMax - v) / fSpan) * pb.height;
+      ctx.fillText(`${v}`, pb.left - 4, y);
+    }
+    ctx.save();
+    ctx.translate(10, pb.top + pb.height / 2);
+    ctx.rotate(-Math.PI / 2);
+    ctx.textAlign = 'center';
+    ctx.fillText('Hz', 0, 0);
+    ctx.restore();
+
+    // Time X-axis (seconds back; column rate is 1 Hz so cols ≈ seconds).
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'top';
+    const totalSec = cols; // 1 Hz column rate
+    const tStep = niceStep(totalSec, 5);
+    for (let sBack = 0; sBack <= totalSec + 1e-9; sBack += tStep) {
+      const x = pb.left + pb.width - (sBack / Math.max(1, totalSec)) * pb.width;
+      ctx.fillStyle = COLOR_LABEL;
+      const label = sBack === 0 ? 'now' : `-${sBack.toFixed(0)}s`;
+      ctx.fillText(label, x, pb.top + pb.height + 2);
+    }
+
+    drawFrame(ctx, w, h);
+
+    // dB range readout (top-right corner inside the plot area).
+    ctx.fillStyle = '#cfd2d4';
+    ctx.textAlign = 'right';
+    ctx.textBaseline = 'top';
+    ctx.fillText(`${dbMin.toFixed(0)} … ${dbMax.toFixed(0)} dB`, pb.right - 4, pb.top + 2);
   },
 };
+
+// Keep the unused-import linter satisfied.
+void AXIS_PAD;
 
 /** Approximate p-percentile range over the dB values in the ring. */
 function percentileRange(ring: SpectrogramFrame[], pLo: number, pHi: number): [number, number] {
