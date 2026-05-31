@@ -1,4 +1,5 @@
 import { STATION_PRESETS, isValidNslc } from '../data/stations';
+import { openStationSearch } from './station-search';
 
 /** Inline station picker for the topbar.
  *
@@ -34,6 +35,19 @@ export function mountStationPicker(
   input.spellcheck = false;
   input.autocapitalize = 'characters';
   wrap.appendChild(input);
+
+  const browse = document.createElement('button');
+  browse.type = 'button';
+  browse.className = 'station-browse';
+  browse.textContent = 'Browse…';
+  browse.title = 'Search the FDSN station catalog (500+ stations)';
+  browse.addEventListener('click', () => {
+    openStationSearch(null, (nslc) => {
+      onChange(nslc);
+      setStation(nslc);
+    });
+  });
+  wrap.appendChild(browse);
 
   parent.appendChild(wrap);
 

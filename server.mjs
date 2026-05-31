@@ -181,6 +181,113 @@ async function handleEventFetch(req, res) {
   proc.stdin.end();
 }
 
+// ─── FDSN station search ──────────────────────────────────────────────────
+// Proxies IRIS's FDSN station service. Pipe-delimited text-format
+// response is parsed server-side into JSON the picker can render.
+// Station metadata is stable, so cache by full query for 1 hour.
+
+const stationCache = new Map(); // querystring -> { ts, body }
+const STATION_TTL_MS = 60 * 60_000;
+
+async function handleStationSearch(req, res) {
+  const url = new URL(req.url, 'http://x');
+  const sp = url.searchParams;
+  const network = (sp.get('network') || 'IU,II,US,G,GE,IV,AU,NZ,CN,CI,IM').trim();
+  const channel = (sp.get('channel') || 'BHZ,HHZ').trim();
+  const limit   = Math.min(parseInt(sp.get('limit') || '500', 10) || 500, 2000);
+  const lat = sp.get('lat'); const lon = sp.get('lon');
+  const maxradius = sp.get('maxradius'); // degrees
+  const activeOnly = sp.get('active') !== 'false';
+
+  // Build the upstream URL.
+  const args = new URLSearchParams({
+    network, channel,
+    level: 'channel',
+    format: 'text',
+    nodata: '404',
+    includerestricted: 'false',
+  });
+  if (activeOnly) {
+    // Stations still operational past 2030: i.e. effectively "open".
+    args.set('endafter', '2030-01-01');
+  }
+  if (lat && lon && maxradius) {
+    args.set('latitude', lat);
+    args.set('longitude', lon);
+    args.set('maxradius', maxradius);
+  }
+  const upstreamUrl =
+    `https://service.iris.edu/fdsnws/station/1/query?${args}`;
+
+  const cacheKey = upstreamUrl;
+  const now = Date.now();
+  const cached = stationCache.get(cacheKey);
+  if (cached && now - cached.ts < STATION_TTL_MS) {
+    res.writeHead(200, { 'content-type': 'application/json', 'x-cache': 'HIT' });
+    res.end(cached.body);
+    return;
+  }
+  try {
+    const upstream = await fetch(upstreamUrl, {
+      headers: { 'user-agent': 'tremiom (https://github.com/andrepaquette/tremiom)' },
+    });
+    if (upstream.status === 404) {
+      // FDSN returns 404 for no-data; respond with empty list.
+      const body = JSON.stringify({ stations: [], note: 'no matches' });
+      stationCache.set(cacheKey, { ts: now, body });
+      res.writeHead(200, { 'content-type': 'application/json', 'x-cache': 'MISS' });
+      res.end(body);
+      return;
+    }
+    if (!upstream.ok) {
+      res.writeHead(upstream.status, { 'content-type': 'application/json' });
+      res.end(JSON.stringify({ error: 'upstream error', status: upstream.status }));
+      return;
+    }
+    const text = await upstream.text();
+    const stations = parseFdsnStationText(text, limit);
+    const body = JSON.stringify({ stations, count: stations.length });
+    stationCache.set(cacheKey, { ts: now, body });
+    res.writeHead(200, { 'content-type': 'application/json', 'x-cache': 'MISS' });
+    res.end(body);
+  } catch (e) {
+    res.writeHead(502, { 'content-type': 'application/json' });
+    res.end(JSON.stringify({ error: 'fetch failed', detail: String(e?.message || e) }));
+  }
+}
+
+/** Parse FDSN station service `format=text` (pipe-delimited, channel-level)
+ *  into deduplicated `{nslc, lat, lon, sensor, sr}` records. Latest-epoch
+ *  wins on duplicates. */
+function parseFdsnStationText(text, limit) {
+  // Columns: Network|Station|Location|Channel|Latitude|Longitude|Elevation|
+  //          Depth|Azimuth|Dip|SensorDescription|Scale|ScaleFreq|ScaleUnits|
+  //          SampleRate|StartTime|EndTime
+  const map = new Map(); // nslc -> record
+  for (const raw of text.split('\n')) {
+    const line = raw.trim();
+    if (!line || line.startsWith('#')) continue;
+    const f = line.split('|');
+    if (f.length < 17) continue;
+    const net = f[0], sta = f[1], loc = f[2] || '', cha = f[3];
+    const nslc = `${net}.${sta}.${loc}.${cha}`;
+    const lat = parseFloat(f[4]);
+    const lon = parseFloat(f[5]);
+    const sensor = f[10] || '';
+    const sr = parseFloat(f[14]) || 0;
+    const startTime = f[15];
+    const existing = map.get(nslc);
+    if (!existing || startTime > existing.startTime) {
+      map.set(nslc, { nslc, lat, lon, sensor, sr, startTime });
+    }
+  }
+  // Strip startTime from the payload; sort by network+station.
+  return [...map.values()]
+    .sort((a, b) => a.nslc.localeCompare(b.nslc))
+    .slice(0, limit)
+    .map((s) => ({ nslc: s.nslc, lat: s.lat, lon: s.lon, sensor: s.sensor, sr: s.sr }));
+}
+
 const httpServer = http.createServer((req, res) => {
   if (req.url?.startsWith('/api/events')) {
     handleUsgs(req, res);
@@ -188,6 +295,10 @@ const httpServer = http.createServer((req, res) => {
   }
   if (req.url?.startsWith('/api/event/waveforms')) {
     handleEventFetch(req, res);
+    return;
+  }
+  if (req.url?.startsWith('/api/stations/search')) {
+    handleStationSearch(req, res);
     return;
   }
   if (req.url?.startsWith('/api/')) {

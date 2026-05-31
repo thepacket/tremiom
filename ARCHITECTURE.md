@@ -189,10 +189,17 @@ panels (you already have the math from Radiom) once the skeleton is up.
 - [x] Real-network smoke test: confirmed IRIS samples reach the browser
       (~10–20 s first-frame latency for BHZ on rtserve.iris.washington.edu)
 - [x] Station picker UI — curated GSN presets + free-form NSLC input
-- [ ] FDSN station service search (network/region/free-text → live results)
+- [x] FDSN station service search — picker "Browse…" button opens a modal,
+      queries IRIS station service via /api/stations/search with 1-hour
+      cache, supports network/channel filters + radius search
 - [ ] Lower switch-latency on station change (SeedLink reconnect can take
       >30 s after `close()`; investigate keeping the connection open and
       sending a SeedLink `INFO`/restart command instead)
+- [ ] Raspberry Shake / AM-network streaming — currently the picker can
+      *find* AM stations via FDSN station-service metadata, but Tremiom
+      only connects to IRIS rtserve which doesn't carry AM streams. Add
+      a second SeedLink manager pointing at data.raspberryshake.org and
+      route AM.* subscriptions there.
 - [x] USGS event feed → event list in sidebar (60 s server-side cache,
       17 feeds, click-to-select hook in place)
 - [x] World map showing live events + curated GSN stations, click-to-pick
