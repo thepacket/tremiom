@@ -24,11 +24,13 @@ primary_region = 'yyz'
 
 # obspy + numpy + scipy + matplotlib hold roughly 350 MB of RSS once a
 # SeedLink connection is warm, the per-channel ring buffers fill, and
-# TauP travel-time tables are loaded. 1 GB gives generous headroom for
-# concurrent event_fetch.py subprocesses (the one-shot Python helpers
-# spawned by /api/event/waveforms can each consume a few hundred MB
-# briefly while fetching + decimating waveforms).
+# TauP travel-time tables are loaded. The peak driver is the **drum
+# backfill**: when a Drum group with N stations starts, the worker
+# kicks off N concurrent 24 h FDSN fetches; each one briefly holds
+# ~100–200 MB of decoded samples in ObsPy. With 6 stations that
+# spikes past 1 GB and the VM OOMs (observed 2026-05-31). 2 GB gives
+# room for 6+ concurrent backfills plus the event_fetch one-shots.
 [[vm]]
   cpu_kind = 'shared'
   cpus = 1
-  memory_mb = 1024
+  memory_mb = 2048
