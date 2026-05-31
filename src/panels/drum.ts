@@ -90,7 +90,9 @@ function drawDrum(ctx: CanvasRenderingContext2D, w: number, h: number, f: DrumFr
     }
     if (rowMax === 0) continue;
     const yMid = pb.top + rowH * (r + 0.5);
-    const ampScale = (rowH * 0.42) / rowMax;
+    // 0.38 of row height per side = 76% total — leaves a clear gutter
+    // between adjacent rows even on a row whose envelope spikes hard.
+    const ampScale = (rowH * 0.38) / rowMax;
 
     // Trace: draw min-to-max as a tight envelope line per column.
     ctx.strokeStyle = '#7ad';

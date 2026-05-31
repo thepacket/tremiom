@@ -81,15 +81,21 @@ export const spectrogram: PanelDef = {
       }
     }
 
-    // Frequency Y-axis (linear from fMin to fMax).
+    // Frequency Y-axis (linear from fMin to fMax). textBaseline 'middle'
+    // means a label at the very top/bottom of the plot extends past the
+    // frame; clamp the y-coordinate so labels always render inside the
+    // panel area.
     ctx.font = '10px ui-monospace, SFMono-Regular, Menlo, monospace';
     ctx.fillStyle = COLOR_LABEL;
     ctx.textAlign = 'right';
     ctx.textBaseline = 'middle';
     const fSpan = Math.max(1e-9, fMax - fMin);
     const fStep = niceStep(fSpan, 4);
+    const labelHalfHeight = 5;
     for (let v = Math.ceil(fMin / fStep) * fStep; v <= fMax + 1e-9; v += fStep) {
-      const y = pb.top + ((fMax - v) / fSpan) * pb.height;
+      const yRaw = pb.top + ((fMax - v) / fSpan) * pb.height;
+      const y = Math.max(pb.top + labelHalfHeight,
+                Math.min(pb.bottom - labelHalfHeight, yRaw));
       ctx.fillText(`${v}`, pb.left - Y_TICK_LABEL_RIGHT_OFFSET, y);
     }
     drawYCaption(ctx, h, 'Hz');

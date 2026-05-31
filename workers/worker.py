@@ -285,6 +285,12 @@ class PPSDStore:
             np.add.at(c["hist"], (f_idx[valid], db_idx[valid]), 1)
             c["n_segments"]      += 1
             c["last_segment_at"]  = time.time()
+            # Keep the latest segment's curve so the panel can draw a
+            # bright line over the heatmap — that gives a useful display
+            # on segment 1, before enough segments have accumulated for
+            # the histogram to read on its own.
+            c["latest_f"]  = f.astype(np.float32).tolist()
+            c["latest_db"] = db.astype(np.float32).tolist()
 
     def snapshot(self, nslc: str):
         if not HAS_SCIPY:
@@ -298,6 +304,8 @@ class PPSDStore:
                 "db_centers": self._db_centers.tolist(),
                 "hist":       c["hist"].tolist(),
                 "n_segments": int(c["n_segments"]),
+                "latest_f":   c.get("latest_f")  or [],
+                "latest_db":  c.get("latest_db") or [],
             }
 
 
@@ -645,11 +653,14 @@ def panel_ppsd(nslc: str, _ring: RingBuffer) -> dict | None:
         "dbCenters":  snap["db_centers"],
         "hist":       snap["hist"],
         "nSegments":  snap["n_segments"],
+        "latestF":    snap["latest_f"],
+        "latestDb":   snap["latest_db"],
     }
-    nm = _get_noise_models()
-    if nm is not None:
-        out["nlnm"] = nm["nlnm"]
-        out["nhnm"] = nm["nhnm"]
+    # NLNM/NHNM reference models live in the displacement-PSD regime
+    # (-200 … -100 dB). We're computing PSD on raw counts (~+30 … +60
+    # dB), so the noise-model curves would fall off the chart entirely.
+    # Skip them until v0.2.x adds instrument response removal; the
+    # frontend handles the missing fields gracefully.
     return out
 
 

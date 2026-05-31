@@ -36,15 +36,19 @@ export const staLta: PanelDef = {
 
     const f = frame as StaLtaFrame | null;
     if (!f?.data?.length) {
-      placeholder(ctx, w, h, 'waiting for frames…');
+      // STA/LTA needs LTA_WIN_S (10s) of samples before it can emit, so
+      // there's a real warm-up gap after subscribe. Name it.
+      placeholder(ctx, w, h, 'STA/LTA warming up (needs 10 s of data)…');
       return;
     }
 
     const d = f.data;
-    // Y range: at least 0..max(threshold+headroom, peak).
-    let peak = f.threshold;
+    // Y range: 0 to max(threshold + headroom, peak + headroom). Always
+    // include the threshold line in the visible area even if no trace
+    // value comes close to it.
+    let peak = 0;
     for (const v of d) if (v > peak) peak = v;
-    const yMax = peak * 1.1;
+    const yMax = Math.max(peak, f.threshold) * 1.15;
     const yMin = 0;
 
     drawYAxis(ctx, w, h, yMin, yMax, { unit: 'STA/LTA', ticks: 4 });
@@ -97,9 +101,10 @@ export const staLta: PanelDef = {
     ctx.stroke();
     ctx.setLineDash([]);
 
-    // Trace itself.
+    // Trace itself — slightly thicker line so it reads against the
+    // dashed threshold and dark background.
     ctx.strokeStyle = COLOR_TRACE;
-    ctx.lineWidth = 1;
+    ctx.lineWidth = 1.4;
     ctx.beginPath();
     for (let i = 0; i < d.length; i++) {
       const x = xForI(i);

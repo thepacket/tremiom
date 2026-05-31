@@ -56,14 +56,17 @@ function drawHodogram(ctx: CanvasRenderingContext2D, w: number, h: number, f: PM
   const n = f.n, e = f.e;
   const len = Math.min(n.length, e.length);
 
-  // Auto-scale around zero, equal scale on both axes (preserves shape).
+  // Auto-scale around zero. The trace's distance from origin is
+  // sqrt(N² + E²) — NOT max(|N|, |E|) — so we must scale by the largest
+  // vector magnitude, otherwise diagonal excursions escape the plot box.
   let m = 0;
   for (let i = 0; i < len; i++) {
-    const a = Math.max(Math.abs(n[i]), Math.abs(e[i]));
-    if (a > m) m = a;
+    const r = Math.hypot(n[i], e[i]);
+    if (r > m) m = r;
   }
   if (m === 0) m = 1;
-  const scale = (side / 2 * 0.92) / m;
+  // 0.90 = small interior margin so the trace doesn't kiss the frame.
+  const scale = (side / 2 * 0.90) / m;
 
   // Background: cross-hairs + circular grid rings at 0.25 / 0.5 / 0.75 / 1.0.
   ctx.strokeStyle = COLOR_GRID_LINE;
