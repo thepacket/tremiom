@@ -1,49 +1,68 @@
 import { panelRegistry } from '../panels/registry';
+import { resetSpectrogram } from '../panels/spectrogram';
 import { TremiomClient } from '../transport/ws';
+import { DEFAULT_STATION } from '../data/stations';
+import { mountStationPicker } from './station-picker';
 
-/** Default station to subscribe to on boot. IU.ANMO.00.BHZ is the
- *  Albuquerque, NM IRIS reference station — always-on, broadband Z. */
-const DEFAULT_STATION = 'IU.ANMO.00.BHZ';
+const INITIAL_PANELS = ['helicorder', 'spectrogram', 'raw-scope', 'psd'];
 
 export function mountApp(root: HTMLElement, version: string): void {
   root.innerHTML = '';
 
+  // ── Topbar ──────────────────────────────────────────────────────────
   const topbar = document.createElement('div');
   topbar.className = 'topbar';
   topbar.innerHTML = `
     <span class="brand">tremiom</span>
     <span class="muted">v${version}</span>
     <span class="muted">station:</span>
-    <span id="station">${DEFAULT_STATION}</span>
+    <span id="picker-mount"></span>
     <span class="muted" id="conn">connecting…</span>
   `;
   root.appendChild(topbar);
 
+  // ── Grid ────────────────────────────────────────────────────────────
   const grid = document.createElement('div');
   grid.className = 'grid';
   root.appendChild(grid);
 
-  // v0.1 default panel layout — 4 live panels.
-  const initialPanels = ['helicorder', 'spectrogram', 'raw-scope', 'psd'];
-
   const renderers = new Map<string, ReturnType<typeof mountPanel>>();
-  for (const id of initialPanels) {
+  for (const id of INITIAL_PANELS) {
     const panel = panelRegistry[id];
     if (!panel) continue;
     renderers.set(id, mountPanel(grid, panel.label, panel));
   }
 
+  // ── State + transport ───────────────────────────────────────────────
+  let currentStation = DEFAULT_STATION;
+
   const client = new TremiomClient({
     onStatus(s) {
-      const el = document.getElementById('conn')!;
-      el.textContent = s;
+      const el = document.getElementById('conn');
+      if (el) el.textContent = s;
     },
     onPanelFrame(panelId, frame) {
+      // Drop frames from stations we're no longer subscribed to.
+      // (The server already filters by subscription, but a brief
+      //  window of in-flight frames may arrive after unsubscribe.)
+      if ((frame as { station?: string }).station !== currentStation) return;
       renderers.get(panelId)?.draw(frame);
     },
   });
 
-  client.subscribe(DEFAULT_STATION, initialPanels);
+  // ── Picker ──────────────────────────────────────────────────────────
+  const pickerMount = document.getElementById('picker-mount')!;
+  mountStationPicker(pickerMount, currentStation, (next) => {
+    if (next === currentStation) return;
+    client.unsubscribe(currentStation);
+    resetSpectrogram();         // clear stale columns
+    for (const r of renderers.values()) r.clear();
+    currentStation = next;
+    client.subscribe(currentStation, INITIAL_PANELS);
+  });
+
+  // Initial subscription.
+  client.subscribe(currentStation, INITIAL_PANELS);
 }
 
 function mountPanel(
@@ -72,6 +91,10 @@ function mountPanel(
   return {
     draw(frame: unknown) {
       panel.render(ctx, canvas, frame);
+    },
+    clear() {
+      // Re-render with no frame -> panels fall back to "waiting…" placeholder.
+      panel.render(ctx, canvas, null);
     },
   };
 }

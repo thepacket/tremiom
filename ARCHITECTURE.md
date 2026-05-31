@@ -187,7 +187,8 @@ panels (you already have the math from Radiom) once the skeleton is up.
 - [x] Node multiplexer with one WS endpoint and station subscriptions
 - [x] Panel registry + 4 live panels: helicorder, spectrogram, raw scope, PSD
 - [ ] Real-network smoke test: confirm IRIS samples reach the browser
-- [ ] Station picker UI (browse FDSN station metadata)
+- [x] Station picker UI — curated GSN presets + free-form NSLC input
+- [ ] FDSN station service search (network/region/free-text → live results)
 - [ ] USGS event feed → event list in sidebar
 - [ ] Click an event → event-map panel + record-section
 - [ ] README with "what is Tremiom" + screenshots

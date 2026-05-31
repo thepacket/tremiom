@@ -5,6 +5,7 @@ import type { PanelDef } from './registry';
  *  a ring buffer and redraws on each new column. */
 
 interface SpectrogramFrame {
+  station: string;
   data: number[];      // dB values, one per frequency bin
   fMinHz: number;
   fMaxHz: number;
@@ -12,7 +13,14 @@ interface SpectrogramFrame {
 }
 
 const HISTORY = 600; // ~10 min at 1 Hz column rate
-const ring: SpectrogramFrame[] = [];
+/** Per-station ring so switching stations doesn't bleed columns. */
+const rings = new Map<string, SpectrogramFrame[]>();
+
+/** Drop history for a station — call when unsubscribing / switching. */
+export function resetSpectrogram(station?: string): void {
+  if (station) rings.delete(station);
+  else rings.clear();
+}
 
 export const spectrogram: PanelDef = {
   id: 'spectrogram',
@@ -26,10 +34,15 @@ export const spectrogram: PanelDef = {
     ctx.fillRect(0, 0, w, h);
 
     const f = frame as SpectrogramFrame | null;
-    if (f?.data?.length) {
+    if (f?.data?.length && f.station) {
+      let ring = rings.get(f.station);
+      if (!ring) { ring = []; rings.set(f.station, ring); }
       ring.push(f);
       while (ring.length > HISTORY) ring.shift();
     }
+    // Use the latest station's ring for display. v0.2 will pass the
+    // active station explicitly to the renderer instead of inferring.
+    const ring = [...rings.values()].at(-1) ?? [];
     if (!ring.length) {
       drawPlaceholder(ctx, w, h, 'waiting for frames…');
       return;
