@@ -5,6 +5,7 @@ import { DEFAULT_STATION } from '../data/stations';
 import { mountStationPicker } from './station-picker';
 import { mountEventList } from './event-list';
 import { mountWorldMap } from './world-map';
+import { mountRecordSection } from './record-section';
 import type { SeismicEvent } from '../data/events';
 
 const INITIAL_PANELS = ['helicorder', 'spectrogram', 'raw-scope', 'psd'];
@@ -20,6 +21,7 @@ export function mountApp(root: HTMLElement, version: string): void {
     <span class="muted">v${version}</span>
     <span class="muted">station:</span>
     <span id="picker-mount"></span>
+    <button class="live-btn hidden" id="live-btn" title="Return to live mode">← Live</button>
     <span class="muted" id="conn">connecting…</span>
   `;
   root.appendChild(topbar);
@@ -54,10 +56,21 @@ export function mountApp(root: HTMLElement, version: string): void {
   sidebarHost.className = 'sidebar-host';
   body.appendChild(sidebarHost);
 
-  // ── Grid (panels) ───────────────────────────────────────────────────
+  // ── Main area: either live grid OR event record-section ────────────
+  const mainArea = document.createElement('div');
+  mainArea.className = 'main-area';
+  body.appendChild(mainArea);
+
+  // Live mode grid.
   const grid = document.createElement('div');
   grid.className = 'grid';
-  body.appendChild(grid);
+  mainArea.appendChild(grid);
+
+  // Event mode container (record section).
+  const eventHost = document.createElement('div');
+  eventHost.className = 'event-host hidden';
+  mainArea.appendChild(eventHost);
+  const recordSection = mountRecordSection(eventHost);
 
   const renderers = new Map<string, ReturnType<typeof mountPanel>>();
   for (const id of INITIAL_PANELS) {
@@ -66,12 +79,31 @@ export function mountApp(root: HTMLElement, version: string): void {
     renderers.set(id, mountPanel(grid, panel.label, panel));
   }
 
+  function showLive() {
+    grid.classList.remove('hidden');
+    eventHost.classList.add('hidden');
+    const lb = document.getElementById('live-btn');
+    if (lb) lb.classList.add('hidden');
+  }
+  function showEvent() {
+    grid.classList.add('hidden');
+    eventHost.classList.remove('hidden');
+    const lb = document.getElementById('live-btn');
+    if (lb) lb.classList.remove('hidden');
+  }
+
   // ── Map + sidebar wired to shared state ─────────────────────────────
   function pickEvent(e: SeismicEvent | null) {
     currentEventId = e?.id ?? null;
     worldMap.setSelectedEvent(currentEventId);
     eventList.setSelectedEvent(currentEventId);
-    if (e) console.log('[event picked]', e);
+    if (e) {
+      showEvent();
+      void recordSection.setEvent(e);
+    } else {
+      showLive();
+      void recordSection.setEvent(null);
+    }
   }
 
   function switchStation(next: string) {
@@ -99,6 +131,11 @@ export function mountApp(root: HTMLElement, version: string): void {
   // ── Station picker ──────────────────────────────────────────────────
   const pickerMount = document.getElementById('picker-mount')!;
   const picker = mountStationPicker(pickerMount, currentStation, switchStation);
+
+  // "← Live" button to leave event mode.
+  document.getElementById('live-btn')?.addEventListener('click', () => {
+    pickEvent(null);
+  });
 
   // Initial subscription.
   client.subscribe(currentStation, INITIAL_PANELS);

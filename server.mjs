@@ -118,9 +118,76 @@ async function handleUsgs(req, res) {
   }
 }
 
+// ─── Event waveform fetch (FDSN + TauP via Python) ─────────────────────────
+// POST /api/event/waveforms  body: {eventId, lat, lon, depthKm, timeMs, ...}
+// Spawns workers/event_fetch.py one-shot. Cached briefly by eventId so
+// reloading or re-clicking the same event doesn't refetch from IRIS.
+
+const eventCache = new Map(); // eventId -> { ts, body }
+const EVENT_TTL_MS = 5 * 60_000;
+const EVENT_TIMEOUT_MS = 90_000;
+
+async function readBody(req) {
+  return new Promise((resolve, reject) => {
+    let data = '';
+    req.setEncoding('utf8');
+    req.on('data', (c) => { data += c; if (data.length > 64_000) req.destroy(); });
+    req.on('end', () => resolve(data));
+    req.on('error', reject);
+  });
+}
+
+async function handleEventFetch(req, res) {
+  if (req.method !== 'POST') {
+    res.writeHead(405); res.end(); return;
+  }
+  let body;
+  try { body = await readBody(req); } catch {
+    res.writeHead(400, { 'content-type': 'application/json' });
+    res.end(JSON.stringify({ error: 'bad body' })); return;
+  }
+  let payload;
+  try { payload = JSON.parse(body); } catch {
+    res.writeHead(400, { 'content-type': 'application/json' });
+    res.end(JSON.stringify({ error: 'bad json' })); return;
+  }
+  const eventId = payload.eventId || '';
+  if (eventId && eventCache.has(eventId)) {
+    const c = eventCache.get(eventId);
+    if (Date.now() - c.ts < EVENT_TTL_MS) {
+      res.writeHead(200, { 'content-type': 'application/json', 'x-cache': 'HIT' });
+      res.end(c.body); return;
+    }
+  }
+  // Spawn the Python one-shot.
+  const proc = spawn(PYTHON, ['workers/event_fetch.py'], {
+    stdio: ['pipe', 'pipe', 'inherit'],
+  });
+  let stdout = '';
+  const timer = setTimeout(() => proc.kill('SIGTERM'), EVENT_TIMEOUT_MS);
+  proc.stdout.on('data', (c) => { stdout += c.toString('utf8'); });
+  proc.on('exit', (code) => {
+    clearTimeout(timer);
+    if (code !== 0) {
+      res.writeHead(502, { 'content-type': 'application/json' });
+      res.end(JSON.stringify({ error: 'event_fetch failed', code }));
+      return;
+    }
+    if (eventId) eventCache.set(eventId, { ts: Date.now(), body: stdout });
+    res.writeHead(200, { 'content-type': 'application/json', 'x-cache': 'MISS' });
+    res.end(stdout);
+  });
+  proc.stdin.write(body);
+  proc.stdin.end();
+}
+
 const httpServer = http.createServer((req, res) => {
   if (req.url?.startsWith('/api/events')) {
     handleUsgs(req, res);
+    return;
+  }
+  if (req.url?.startsWith('/api/event/waveforms')) {
+    handleEventFetch(req, res);
     return;
   }
   if (req.url?.startsWith('/api/')) {

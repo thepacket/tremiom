@@ -196,7 +196,9 @@ panels (you already have the math from Radiom) once the skeleton is up.
 - [x] USGS event feed → event list in sidebar (60 s server-side cache,
       17 feeds, click-to-select hook in place)
 - [x] World map showing live events + curated GSN stations, click-to-pick
-- [ ] Click an event → record-section against N nearest stations
+- [x] Click an event → record-section against N nearest stations, with
+      TauP-predicted P/S arrival overlays (iasp91 model, IRIS FDSN
+      dataselect, 5-minute event cache)
 - [ ] USGS event feed → event list in sidebar
 - [ ] Click an event → event-map panel + record-section
 - [ ] README with "what is Tremiom" + screenshots
