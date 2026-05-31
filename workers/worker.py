@@ -673,6 +673,69 @@ def panel_particle_motion(nslc: str, ring: RingBuffer) -> dict | None:
     }
 
 
+THREE_COMP_WIN_S = 30.0
+THREE_COMP_POINTS = 800
+
+
+def panel_three_comp(nslc: str, ring: RingBuffer) -> dict | None:
+    """3-component scope — Z, N(/1), E(/2) traces stacked in one panel
+    over a common time window. The standard way to look at a teleseism:
+    you see the same arrival on all three components and read the wave
+    type from how the energy partitions (vertical-dominant P, horizontal
+    -dominant S/surface). Auto-subscribes alongside the picked Z channel
+    via three_comp_siblings (same path particle-motion uses)."""
+    try:
+        net, sta, loc, cha = nslc.split(".")
+    except ValueError:
+        return None
+    if len(cha) != 3:
+        return None
+    base = cha[:-1]
+    z_nslc = f"{net}.{sta}.{loc}.{base}Z"
+
+    # Vertical.
+    sr_z, z_data = ring.snapshot(z_nslc, THREE_COMP_WIN_S)
+    # Horizontals (N/E or 1/2, whichever streams).
+    pair = horizontal_pair(nslc, ring, THREE_COMP_WIN_S)
+    if not z_data and pair is None:
+        return None
+
+    comps = []
+    with _subs_lock:
+        z_spec = _filters.get(nslc)
+
+    def decimate(d, sr):
+        n = len(d)
+        step = max(1, n // THREE_COMP_POINTS)
+        return [float(v) for v in d[::step][:THREE_COMP_POINTS]]
+
+    if z_data and sr_z > 0:
+        zf = apply_filter(z_data, sr_z, z_nslc)
+        comps.append({"label": f"{base}Z", "data": decimate(zf, sr_z)})
+    if pair is not None:
+        n_suffix, e_suffix, sr_h, n_data, e_data = pair
+        n_nslc = f"{net}.{sta}.{loc}.{base}{n_suffix}"
+        e_nslc = f"{net}.{sta}.{loc}.{base}{e_suffix}"
+        with _subs_lock:
+            if z_spec:
+                _filters[n_nslc] = z_spec
+                _filters[e_nslc] = z_spec
+        nf = apply_filter(n_data, sr_h, n_nslc)
+        ef = apply_filter(e_data, sr_h, e_nslc)
+        comps.append({"label": f"{base}{n_suffix}", "data": decimate(nf, sr_h)})
+        comps.append({"label": f"{base}{e_suffix}", "data": decimate(ef, sr_h)})
+    if not comps:
+        return None
+    return {
+        "frame":   "panel",
+        "panel":   "three-comp",
+        "station": nslc,
+        "t":       time.time(),
+        "windowS": THREE_COMP_WIN_S,
+        "components": comps,
+    }
+
+
 STA_WIN_S = 1.0   # short-term-average window
 LTA_WIN_S = 10.0  # long-term-average window
 STA_LTA_VIEW_S = 60.0   # how much history to ship to the client per frame
@@ -734,6 +797,7 @@ PANELS = {
     "rsam":        panel_rsam,
     "spectrum":    panel_spectrum,
     "sta-lta":     panel_sta_lta,
+    "three-comp":  panel_three_comp,
     "particle-motion": panel_particle_motion,
     "ppsd":         None,  # bound below (definition uses PPSD instance)
 }
@@ -1135,7 +1199,7 @@ def cmd_loop(sl_router) -> None:
                 streams: list[str] = []
                 for s, panels in _subscriptions.items():
                     streams.append(s)
-                    if "particle-motion" in panels:
+                    if "particle-motion" in panels or "three-comp" in panels:
                         for sib in three_comp_siblings(s):
                             if sib not in streams:
                                 streams.append(sib)
