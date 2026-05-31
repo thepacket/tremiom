@@ -513,11 +513,17 @@ export function mountRecordSection(parent: HTMLElement): RecordSectionHandle {
                                depthKm: e.depthKm, timeMs: e.timeMs, nStations: 6 }),
       });
       if (!r.ok || myToken !== token || currentEvent?.id !== e.id) return;
-      const d = await r.json() as { ml?: number | null; n?: number; spread?: number };
+      const d = await r.json() as {
+        ml?: number | null; n?: number; spread?: number;
+        md?: number | null; mdN?: number;
+      };
       if (myToken !== token || currentEvent?.id !== e.id) return;
-      if (d.ml != null) {
+      if (d.ml != null || d.md != null) {
         const base = `M${e.mag?.toFixed(1) ?? '?'} · ${e.place} · ${e.depthKm.toFixed(0)} km depth`;
-        info.textContent = `${base}  ·  tremiom ML ${d.ml.toFixed(1)} (±${d.spread ?? 0}, n=${d.n})`;
+        const parts: string[] = [];
+        if (d.ml != null) parts.push(`ML ${d.ml.toFixed(1)} (±${d.spread ?? 0}, n=${d.n})`);
+        if (d.md != null) parts.push(`Md ${d.md.toFixed(1)} (n=${d.mdN})`);
+        info.textContent = `${base}  ·  tremiom ${parts.join('  ·  ')}`;
       }
     } catch { /* magnitude unavailable — leave the catalog mag */ }
   }

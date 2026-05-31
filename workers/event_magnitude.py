@@ -73,6 +73,51 @@ def ml_iaspei(amp_mm: float, hypo_km: float) -> float:
             + 0.00189 * hypo_km - 2.09)
 
 
+def coda_duration_s(tr, origin):
+    """Coda duration τ: seconds from origin until the smoothed signal
+    envelope returns to ~2× the pre-event noise level (sustained).
+    Returns None if no clear coda. Operates on a demeaned, 1–10 Hz
+    band-passed copy."""
+    import numpy as np
+    t = tr.copy()
+    t.detrend("demean")
+    try:
+        t.filter("bandpass", freqmin=1.0, freqmax=10.0, corners=4, zerophase=True)
+    except Exception:
+        pass
+    sr = float(t.stats.sampling_rate)
+    if sr <= 0:
+        return None
+    data = np.abs(np.asarray(t.data, dtype=np.float64))
+    # Sliding-RMS-ish smoothing over 1 s.
+    win = max(1, int(sr))
+    kernel = np.ones(win) / win
+    env = np.convolve(data, kernel, mode="same")
+    t0 = t.stats.starttime
+    o_idx = int((origin - t0) * sr)
+    if o_idx < win or o_idx >= len(env) - win:
+        return None
+    noise = float(np.median(env[max(0, o_idx - int(25 * sr)):o_idx - int(2 * sr)]))
+    if noise <= 0:
+        noise = float(np.median(env[:o_idx])) or 1e-9
+    thr = 2.0 * noise
+    post = env[o_idx:]
+    if post.max() < thr * 1.5:
+        return None  # nothing clearly above noise — no event coda here
+    # Coda end = last sample (after the peak) still above threshold.
+    above = np.where(post > thr)[0]
+    if len(above) == 0:
+        return None
+    tau = float(above[-1] / sr)
+    return tau if tau > 1 else None
+
+
+def md_coda(tau_s: float, dist_km: float) -> float:
+    """Coda-duration (duration) magnitude. Lee et al. (1972)-style:
+    Md = -2.60 + 2.74·log10(τ) + 0.0009·Δ."""
+    return -2.60 + 2.74 * math.log10(tau_s) + 0.0009 * dist_km
+
+
 def horizontals(net, sta, loc, cha):
     base = cha[:-1]
     return [f"{base}N", f"{base}E", f"{base}1", f"{base}2"]
@@ -107,12 +152,25 @@ def main():
     cand.sort(key=lambda s: s["distKm"])
     chosen = [s for s in cand if s["distKm"] <= 1100][:n_stations]
 
-    out_st, errors, mls = [], [], []
+    out_st, errors, mls, mds = [], [], [], []
     for s in chosen:
         net, sta, loc, cha = s["nslc"].split(".")
         hypo = math.sqrt(s["distKm"] ** 2 + depth ** 2)
         peak_mm = 0.0
         got = False
+        # Coda-duration Md from the vertical channel.
+        md = None
+        try:
+            zst = fdsn.get_waveforms(network=net, station=sta, location=loc,
+                                     channel=cha, starttime=origin - 30,
+                                     endtime=origin + 900)
+            if zst:
+                tau = coda_duration_s(zst[0], origin)
+                if tau:
+                    md = md_coda(tau, s["distKm"])
+                    mds.append(md)
+        except Exception as e:
+            errors.append({"nslc": f"{net}.{sta}.{loc}.{cha}", "error": repr(e)[:80]})
         for hcha in horizontals(net, sta, loc, cha):
             try:
                 st = fdsn.get_waveforms(network=net, station=sta, location=loc,
@@ -141,7 +199,12 @@ def main():
             mls.append(ml)
             out_st.append({"nslc": f"{net}.{sta}.{loc}.{cha[:2]}[NE]",
                            "distKm": round(s["distKm"], 1),
-                           "ampMm": peak_mm, "ml": round(ml, 2)})
+                           "ampMm": peak_mm, "ml": round(ml, 2),
+                           "md": round(md, 2) if md is not None else None})
+        elif md is not None:
+            out_st.append({"nslc": f"{net}.{sta}.{loc}.{cha}",
+                           "distKm": round(s["distKm"], 1),
+                           "ampMm": None, "ml": None, "md": round(md, 2)})
 
     result = {"stations": out_st, "errors": errors}
     if mls:
@@ -151,6 +214,11 @@ def main():
     else:
         result["ml"] = None
         result["note"] = "no usable stations within 1100 km"
+    if mds:
+        result["md"] = round(statistics.median(mds), 2)
+        result["mdN"] = len(mds)
+    else:
+        result["md"] = None
     print(json.dumps(result))
 
 
