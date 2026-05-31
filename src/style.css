@@ -437,6 +437,11 @@ html, body {
   cursor: pointer;
 }
 .panel-png:hover { color: var(--accent); border-color: var(--accent); }
+.panel-help {
+  background: transparent; border: 1px solid transparent; color: var(--muted);
+  font-size: 12px; line-height: 1; padding: 0 5px; border-radius: 3px; cursor: pointer;
+}
+.panel-help:hover { color: var(--accent); border-color: var(--accent); }
 
 .panel canvas {
   display: block;
@@ -529,6 +534,25 @@ html, body {
 .help-table { width: 100%; border-collapse: collapse; }
 .help-table td { padding: 5px 8px; vertical-align: top; border-bottom: 1px solid #181818; }
 .help-table td:first-child { white-space: nowrap; color: var(--fg); width: 130px; }
+.help-hint { color: var(--muted); font-style: italic; }
+
+/* Per-panel educational cards */
+.help-panel {
+  border: 1px solid var(--panel-border); border-radius: 5px;
+  padding: 8px 12px; margin: 10px 0; background: #101315;
+}
+.help-panel h3 { margin: 0 0 6px; font-size: 13px; color: var(--fg); }
+.help-panel p { margin: 5px 0; }
+.help-tag {
+  display: inline-block; min-width: 92px; margin-right: 8px;
+  font-size: 10px; text-transform: uppercase; letter-spacing: 0.04em;
+  color: var(--accent); font-weight: 600; vertical-align: top;
+}
+.help-panel.help-flash {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 2px rgba(255, 140, 26, 0.35);
+  transition: box-shadow 0.3s, border-color 0.3s;
+}
 
 /* ── Dashboard selector bar ─────────────────────────────────────────── */
 .dashboard-bar { display: inline-flex; align-items: center; gap: 4px; }
@@ -553,6 +577,7 @@ html, body {
   body.printing-dashboard .history-host,
   body.printing-dashboard .panel-header .panel-remove,
   body.printing-dashboard .panel-header .panel-png,
+  body.printing-dashboard .panel-header .panel-help,
   body.printing-dashboard .panel-header .panel-edit { display: none !important; }
   body.printing-dashboard #app { display: block; height: auto; }
   body.printing-dashboard .body { display: block; height: auto; overflow: visible; }

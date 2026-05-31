@@ -400,7 +400,7 @@ export function mountApp(root: HTMLElement, version: string): void {
     pickEvent(null);
   });
   document.getElementById('settings-btn')?.addEventListener('click', openSettings);
-  document.getElementById('help-btn')?.addEventListener('click', openHelp);
+  document.getElementById('help-btn')?.addEventListener('click', () => openHelp());
 
   document.getElementById('pin-btn')?.addEventListener('click', () => {
     if (!latestRawScope?.data?.length) return;

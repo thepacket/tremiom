@@ -15,6 +15,7 @@ import 'gridstack/dist/gridstack.min.css';
 import { GridStack } from 'gridstack';
 import { panelRegistry, type PanelDef } from '../panels/registry';
 import { renderMarkdown } from '../util/markdown';
+import { openHelp } from './help';
 
 const STORE_KEY = 'tremiom-dashboards-v2';
 const OLD_KEY = 'tremiom-dashboard-v1';
@@ -161,6 +162,7 @@ export function mountDashboard(
     panelEl.innerHTML = `
       <header class="panel-header">
         <span class="panel-title">${escapeHtml(def.label)}</span>
+        <button class="panel-help" title="What is this panel?">?</button>
         <button class="panel-png" title="Save panel as PNG">⤓</button>
         <button class="panel-remove" title="Remove panel">×</button>
       </header>`;
@@ -169,6 +171,9 @@ export function mountDashboard(
     content.appendChild(panelEl);
     item.appendChild(content);
     m.canvas = canvas;
+    panelEl.querySelector('.panel-help')!.addEventListener('click', (e) => {
+      e.stopPropagation(); openHelp(m.widget.type);
+    });
     panelEl.querySelector('.panel-png')!.addEventListener('click', (e) => {
       e.stopPropagation(); savePanelPng(m);
     });
@@ -189,6 +194,7 @@ export function mountDashboard(
     panelEl.innerHTML = `
       <header class="panel-header">
         <span class="panel-title">Notes</span>
+        <button class="panel-help" title="What is this panel?">?</button>
         <button class="panel-edit" title="Edit / view">✎</button>
         <button class="panel-remove" title="Remove panel">×</button>
       </header>
@@ -223,6 +229,9 @@ export function mountDashboard(
     ta.addEventListener('input', () => {
       if (t) window.clearTimeout(t);
       t = window.setTimeout(() => { m.widget.content = ta.value; persist(); }, 400);
+    });
+    panelEl.querySelector('.panel-help')!.addEventListener('click', (e) => {
+      e.stopPropagation(); openHelp('markdown');
     });
     panelEl.querySelector('.panel-remove')!.addEventListener('click', (e) => {
       e.stopPropagation(); removePanel(m.widget.id);
