@@ -352,12 +352,64 @@ def panel_drum(nslc: str, _ring: RingBuffer) -> dict | None:
     }
 
 
+STA_WIN_S = 1.0   # short-term-average window
+LTA_WIN_S = 10.0  # long-term-average window
+STA_LTA_VIEW_S = 60.0   # how much history to ship to the client per frame
+STA_LTA_THRESHOLD = 3.0 # standard trigger threshold for teleseismic-ish data
+
+
+def panel_sta_lta(nslc: str, ring: RingBuffer) -> dict | None:
+    """STA/LTA trigger ratio — the classic event-detection time series.
+
+    A short-term-average of |signal| divided by a long-term-average:
+    spikes when an arrival hits because STA reacts fast while LTA still
+    reflects the pre-event background. Anything above ~3-5 is the
+    standard "trigger" threshold; the client shades those regions red.
+    """
+    if not HAS_SCIPY:
+        return None
+    sr, data = ring.snapshot(nslc, STA_LTA_VIEW_S + LTA_WIN_S)
+    if not data or sr <= 0:
+        return None
+    sta_n = max(1, int(STA_WIN_S * sr))
+    lta_n = max(sta_n + 1, int(LTA_WIN_S * sr))
+    if len(data) < lta_n + 1:
+        return None
+    arr = np.abs(np.asarray(data, dtype=np.float32))
+    # Rolling sums via cumsum.
+    cs = np.cumsum(np.concatenate([[0.0], arr]))
+    sta = (cs[sta_n:] - cs[:-sta_n]) / sta_n         # len N - sta_n + 1
+    lta = (cs[lta_n:] - cs[:-lta_n]) / lta_n         # len N - lta_n + 1
+    # Align ends so the i-th element corresponds to sample i + lta_n - 1.
+    offset = lta_n - sta_n
+    sta_aligned = sta[offset:]
+    ratio = sta_aligned / np.maximum(lta, 1e-9)
+    # Decimate to a manageable point count for transport / drawing.
+    target = 1024
+    step = max(1, len(ratio) // target)
+    out = ratio[::step][:target].astype(np.float32)
+    sr_out = sr / step
+    return {
+        "frame":     "panel",
+        "panel":     "sta-lta",
+        "station":   nslc,
+        "t":         time.time(),
+        "windowS":   STA_LTA_VIEW_S,
+        "staWinS":   STA_WIN_S,
+        "ltaWinS":   LTA_WIN_S,
+        "threshold": STA_LTA_THRESHOLD,
+        "sr":        float(sr_out),
+        "data":      [float(v) for v in out],
+    }
+
+
 PANELS = {
     "helicorder":  panel_helicorder,
     "spectrogram": panel_spectrogram,
     "raw-scope":   panel_raw_scope,
     "psd":         panel_psd,
     "drum":        panel_drum,
+    "sta-lta":     panel_sta_lta,
 }
 
 
