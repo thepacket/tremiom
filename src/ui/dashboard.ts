@@ -70,6 +70,13 @@ export function mountDashboard(
     resizable: { handles: 'all' },
     float: false,
     animate: false,
+    // Responsive: collapse to a single stacked column on narrow screens
+    // (phones / portrait tablets) so panels are usable instead of crushed
+    // into 1/24th-width slivers. gridstack remaps positions automatically.
+    columnOpts: {
+      breakpointForWindow: true,
+      breakpoints: [{ w: 700, c: 1 }, { w: 1100, c: 12 }],
+    },
   }, root);
 
   const mounted = new Map<string, MountedPanel>();
