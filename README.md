@@ -377,8 +377,8 @@ keys, and Fly secret values are gitignored and managed via
 tremiom is a solo-authored project and **does not accept pull requests**.
 An automated workflow closes incoming PRs. Bug reports, feature
 requests, and discussions are welcome — see
-[`CONTRIBUTING.md`](./CONTRIBUTING.md). The GPL-3.0-or-later license
-grants you the right to fork and modify your fork freely.
+[`CONTRIBUTING.md`](./CONTRIBUTING.md). The MIT license grants you the
+right to use, fork, and modify it freely.
 
 ## Acknowledgments
 
@@ -394,4 +394,5 @@ grants you the right to fork and modify your fork freely.
 
 ## License
 
-[GPL-3.0-or-later](./LICENSE)
+[MIT](./LICENSE) © Andre Paquette. Third-party dependency licenses are
+listed in [`THIRD_PARTY_LICENSES.md`](./THIRD_PARTY_LICENSES.md).
