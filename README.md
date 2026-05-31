@@ -1,17 +1,31 @@
 # tremiom
 
-Real-time and historical seismic data viewer with scientific plots, in your browser.
+**A real-time and historical seismology workstation in your browser.**
 
-Tremiom streams live waveforms from any IRIS / GSN station, runs server-side
-scientific DSP (spectrogram, PSD, helicorder, raw scope), shows a live world
-map of recent earthquakes from the USGS feed, and on demand fetches historical
-waveforms for any event from FDSN and overlays TauP-predicted P/S arrival
-times — all without leaving the page.
+Tremiom streams live waveforms from thousands of global broadband stations,
+runs the full ObsPy/scipy analysis toolkit server-side, and presents it as a
+configurable Grafana-style dashboard of scientific panels — helicorder drum,
+spectrogram, PSD/PPSD, RSAM, STA/LTA, 3-component, particle motion, H/V site
+response, and more. A live world map and USGS feed drive an event-analysis
+mode (record sections, TauP arrivals, focal-mechanism beachballs, felt-report
++ ShakeMap overlays, manual + automatic phase picking, grid-search location,
+ML/Md magnitudes, QuakeML/MiniSEED export). A History mode browses any
+station over any time window with zoom/pan, or opens your own MiniSEED/SAC
+files. Every panel removes the instrument response on demand (counts →
+velocity / displacement / acceleration / Wood-Anderson) and applies
+server-side band-pass filters. Dashboards are named, saved, printed to PDF,
+and shared as JSON. And it's self-teaching: every panel carries built-in
+educational help.
+
+All in the browser, with no install, behind an optional one-token private
+deploy.
 
 It's a sibling project to [radiom](https://github.com/andrepaquette/radiom)
 and follows the same shape: thin Vite + TypeScript client, Node WebSocket
-multiplexer, real DSP done server-side (Python/ObsPy/scipy instead of
-csdr). See [`ARCHITECTURE.md`](./ARCHITECTURE.md) for the design.
+multiplexer, real DSP done server-side (Python / ObsPy / scipy instead of
+csdr). See [`ARCHITECTURE.md`](./ARCHITECTURE.md) for the design and
+[`COMPETITIVE.md`](./COMPETITIVE.md) for how it measures up against the
+established tools.
 
 ## Authorship
 
@@ -24,34 +38,82 @@ and decided when to ship — but didn't write the code by hand. Bugs and
 design choices are the agent's; the call to keep them or fix them is
 the maintainer's.
 
-## What you get
+## Features
 
-### Live mode (default)
+### Data sources & stations
+- **Live SeedLink streaming** from IRIS/EarthScope (`rtserve`) and Raspberry
+  Shake (`data.raspberryshake.org`), routed per network.
+- **Station picker** — 15 curated GSN broadbands plus free-form
+  `NET.STA.LOC.CHA` entry, plus a **Browse…** modal that searches the full
+  FDSN station catalog by network / channel / radius.
+- **Open local files** — load your own MiniSEED / SAC / GSE2 (anything
+  ObsPy reads) and view them in History mode.
 
-- **Station picker** — 15 curated GSN broadbands (ANMO, COLA, KIP, KONO,
-  PMSA, BFO, SUR, …) plus a free-form `NET.STA.LOC.CHA` input for any
-  station the SeedLink server knows.
-- **World map** — live event epicenters from USGS (colored + sized by
-  magnitude, faded by age over 24 h) plus the curated station markers.
-  Click anything to select it.
-- **Sidebar** — every event from the chosen USGS feed (17 to choose
-  from, e.g. M2.5+ in the last day, M4.5+ this week, "significant"
-  events). Mag-colored badges, time-ago labels that refresh between
-  polls.
-- **Four scientific panels** updating at 1 Hz from real samples:
-  - **Helicorder** — 60 s drum-recorder downsample
-  - **Spectrogram** — sliding STFT, dB scale, 8 s window
-  - **Raw scope** — 10 s decimated waveform
-  - **PSD** — Welch power spectral density over 60 s
+### Live panels (15, on a configurable dashboard)
+- **Helicorder** — 24-hour drum recorder; 24 h backfilled on subscribe, then
+  live. Catalog events marked at their predicted arrival time.
+- **RSAM** — real-time seismic amplitude (1-min bins over 24 h); tremor tracker.
+- **Spectrogram** — sliding time–frequency heatmap.
+- **Spectrum (FFT)** — live magnitude spectrum + decaying peak-hold.
+- **PSD** — Welch power spectral density.
+- **PPSD** — accumulating probabilistic PSD (station noise/quality).
+- **STA/LTA** — trigger ratio with threshold shading.
+- **Raw scope** — rolling waveform window.
+- **3-component** — Z / N / E (or 1/2) stacked.
+- **Particle motion** — horizontal hodogram (polarization).
+- **H/V ratio** — Nakamura horizontal-to-vertical site response, f₀ peak.
+- **Network** — multi-station RSAM overview.
+- **Station QC** — gaps / latency / RMS health metrics.
+- **Wave clipboard** — pinned trace snapshots for comparison.
+- **Notes** — editable markdown panels (0..many per dashboard).
 
-### Event mode (click an event)
+### Signal processing (server-side, applied across panels)
+- **Instrument response removal / units** — counts, velocity (m/s),
+  displacement (m), acceleration (m/s²), or **Wood-Anderson** (mm), via
+  ObsPy + cached StationXML.
+- **Band-pass / low / high filters** — Butterworth presets (local quake,
+  regional, teleseismic, microseism, surface waves, …), zero-phase.
 
-- Fetches the 6 nearest curated stations from FDSN dataselect
-- Runs **TauP** on the iasp91 1-D Earth model for P and S arrivals
-- Renders a **record section**: stacked waveforms aligned by epicentral
-  distance, with dashed P (yellow) and S (red) arrival markers and a
-  vertical line at the origin time
-- "← Live" in the topbar to return to live mode
+### World map & events
+- **Pan/zoom world map** (wheel + drag, double-click reset) with coastlines,
+  live USGS epicenters (magnitude color/size, age fade), and station markers.
+- **Event sidebar** — 17 USGS feeds; magnitude badges; felt-report intensity
+  chips (CDI/MMI).
+
+### Event-analysis mode (click any event)
+- **Record section** — N nearest stations stacked by epicentral distance,
+  **TauP** (iasp91) predicted P (yellow) / S (red) arrivals, origin line.
+- **Z / R / T rotation** — rotate horizontals to radial/transverse.
+- **Focal-mechanism beachball** from the USGS moment tensor.
+- **Independent magnitudes** — ML (Wood-Anderson) and Md (coda duration).
+- **DYFI felt-report polygons** + **ShakeMap** modeled-intensity raster on the map.
+- **Phase picking** — manual P/S (click), **auto-pick** (STA/LTA onset),
+  persistent per-event pick catalog, **QuakeML** export.
+- **Grid-search location** from your P picks (offset vs the catalog).
+- **Export** — full-resolution **MiniSEED**, decimated **CSV**, or **PNG**.
+
+### Dashboards
+- **Many named dashboards**, one shown at a time; create / rename / delete
+  from the topbar selector. Drag-to-move, drag-to-resize panels (gridstack).
+- **Per-panel PNG export**, **print whole dashboard to PDF**.
+- **Export / import dashboards as JSON** (Grafana-style sharing/backup).
+- Layout, panels, notes, and picks **persist** in the browser.
+
+### Live monitoring
+- **STA/LTA trigger alerts** — browser notification + banner when a station
+  crosses your threshold.
+
+### Modes
+- **Live** (the dashboard), **Event** (record section), **History** (any
+  station, any time window, zoom/pan/step, or a local file).
+
+### Built-in help
+- A **?** in the topbar and on every panel opens a searchable, educational
+  reference: what each panel is, how to read it, and how to use it.
+
+### Deployment & access
+- One-command **fly.io** deploy (Docker), **`TREMIOM_TOKEN`** single-token
+  private access with a sign-in form + cookie, or fully open for local use.
 
 ## Quick start
 
@@ -71,9 +133,10 @@ npm run dev:http        # http://localhost:5174  (no certs needed)
 npm run dev             # https://localhost:5173
 ```
 
-Open the URL Vite prints. Expect the four panels to say "waiting for
+Open the URL Vite prints. Expect the panels to say "waiting for
 frames…" for ~10–20 s while the SeedLink handshake completes; that's
-normal.
+normal. Set `TREMIOM_SYNTHETIC=1` on the server to develop the UI
+offline with synthetic data.
 
 ## Layout
 
@@ -82,30 +145,45 @@ src/
   main.ts                 Entry
   ui/
     app.ts                Top-level layout + state plumbing
-    station-picker.ts     Topbar station selector
-    event-list.ts         Sidebar (USGS feed)
-    world-map.ts          Equirectangular world map + click handling
-    record-section.ts     Event-mode stacked waveforms with P/S overlays
+    dashboard.ts          Multi-dashboard manager (gridstack) + markdown panels
+    dashboard-bar.ts      Topbar dashboard selector / CRUD / JSON / PDF
+    panel-picker.ts       Add/remove panels popover
+    station-picker.ts     Topbar station selector + Browse modal
+    station-search.ts     FDSN station-catalog search modal
+    filter-picker.ts      Band-pass filter selector
+    units-picker.ts       Response-removal / units selector
+    alert-picker.ts, alerts.ts   STA/LTA trigger alerts
+    event-list.ts         Sidebar (USGS feed + felt chips)
+    world-map.ts          Pan/zoom map + DYFI + ShakeMap overlays
+    record-section.ts     Event mode: record section, picks, locate, export
+    history-view.ts       History mode: arbitrary time window + local files
+    beachball.ts          Focal-mechanism renderer
+    settings.ts           Auth/settings modal
+    help.ts               Educational help overlay (per-panel docs)
   panels/
-    registry.ts           Registry — same pattern as Radiom
-    helicorder.ts         The four live panels
-    spectrogram.ts
-    raw-scope.ts
-    psd.ts
+    registry.ts           Panel registry
+    drum.ts rsam.ts spectrogram.ts spectrum.ts psd.ts ppsd.ts
+    sta-lta.ts raw-scope.ts three-comp.ts particle-motion.ts hv.ts
+    helicorder.ts network.ts clipboard.ts qc.ts
+    axes.ts colormap.ts   Shared plot helpers
   data/
-    stations.ts           Curated 15 GSN broadband stations
-    events.ts             USGS feed types + helpers
-    event-waveforms.ts    Event fetch types + helpers
+    stations.ts events.ts event-waveforms.ts filters.ts
     coastlines.json       Natural Earth 1:110m land outlines
   transport/
-    ws.ts                 WebSocket client (reconnecting)
-    events.ts             USGS event-feed poller
-server.mjs                Node WS multiplexer + REST proxy
+    ws.ts events.ts       WebSocket client + USGS feed poller
+  util/markdown.ts        Dependency-free markdown renderer (notes panels)
+server.mjs                Node WS multiplexer + REST/FDSN/USGS proxies + auth
 workers/
-  worker.py               Unified SeedLink ingestor + panel computers
-  event_fetch.py          One-shot FDSN/TauP fetcher for event mode
+  worker.py               Unified SeedLink ingestor + live panel computers
+  event_fetch.py          Record-section waveforms + TauP (+ ZRT rotation)
+  event_export.py         Full-resolution MiniSEED export
+  event_magnitude.py      ML (Wood-Anderson) + Md (coda) estimation
+  event_autopick.py       STA/LTA P-arrival auto-picker
+  waveform_fetch.py       Arbitrary-window fetch (History mode)
+  parse_waveform.py       Parse uploaded local files
   requirements.txt        obspy, numpy, scipy
 ARCHITECTURE.md           Design doc + roadmap
+COMPETITIVE.md            Feature comparison vs 17 established tools
 ```
 
 ## Private-deployment token
@@ -274,13 +352,18 @@ fly certs show tremiom.yourdomain.com -a tremiom   # check issuance
 
 ## Status
 
-**v0.0.x.** Real-data live mode and event-mode work end-to-end against
-IRIS rtserve + EarthScope FDSN, against the curated 15 station list.
-Aesthetic + feature polish is happening live; future work tracked in the
-checklist at the bottom of `ARCHITECTURE.md`.
+**v0.4.x.** Live, event, and history modes all work end-to-end against IRIS
+rtserve + EarthScope FDSN + USGS, with 15 panels, configurable multi-
+dashboards, response removal, picking/location/magnitudes, and built-in
+help. Per [`COMPETITIVE.md`](./COMPETITIVE.md), Tremiom is a superset of the
+live-monitoring + single-event-analysis feature sets of the established
+tools (Swarm, SeisComP, Snuffler, Wilber 3, GeoNet, Raspberry Shake, …);
+the only deliberate exclusions are array/research subsystems (FK,
+receiver functions, cross-correlation) and the full automatic
+detect→associate→locate pipeline.
 
-The `TREMIOM_SYNTHETIC=1` environment variable forces synthetic
-ingestion if you want to develop the UI without an internet connection.
+`TREMIOM_SYNTHETIC=1` on the server forces synthetic ingestion for offline
+UI development.
 
 ## Security
 
@@ -299,11 +382,13 @@ grants you the right to fork and modify your fork freely.
 
 ## Acknowledgments
 
-- **IRIS / EarthScope** — `rtserve.iris.washington.edu` SeedLink stream
-  and FDSN dataselect web service
-- **USGS** — earthquake summary GeoJSON feeds
-- **ObsPy** — the heroic seismology toolkit that makes the Python side
-  possible
+- **IRIS / EarthScope** — SeedLink stream + FDSN station / dataselect web services
+- **Raspberry Shake** — AM-network citizen-seismometer SeedLink + catalog
+- **USGS** — earthquake summary GeoJSON feeds, per-event detail
+  (moment tensor, DYFI felt reports, ShakeMap intensity)
+- **ObsPy** — the seismology toolkit that makes the Python side possible
+  (SeedLink, FDSN, response removal, TauP, triggers, beachballs, …)
+- **gridstack.js** — the draggable/resizable dashboard grid
 - **Natural Earth** — public-domain 1:110m land outlines
 - **TauP** — iasp91 travel-time tables, via ObsPy
 

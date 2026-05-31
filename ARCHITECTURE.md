@@ -1,8 +1,16 @@
-# Tremiom — Architecture Sketch (v0.1)
+# Tremiom — Architecture Sketch
 
 Real-time and historical seismic data viewer with scientific plots.
 Mirrors Radiom's shape: thin web client, server doing the heavy lifting,
 many small panels in a registry.
+
+> **State:** this document captures the original v0.1 design, which still
+> describes the architecture accurately (Vite/TS client, Node WS
+> multiplexer, Python/ObsPy workers, panel registry). The app has since
+> grown well past it — see [`README.md`](./README.md) for the full current
+> feature list and [`COMPETITIVE.md`](./COMPETITIVE.md) for the
+> feature-by-feature comparison against established tools. The milestone
+> checklist below is kept current.
 
 ---
 
