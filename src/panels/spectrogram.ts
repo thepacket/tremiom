@@ -3,6 +3,7 @@ import {
   AXIS_PAD, COLOR_LABEL, Y_TICK_LABEL_RIGHT_OFFSET,
   drawFrame, drawYCaption, niceStep, plotBounds,
 } from './axes';
+import { viridis } from './colormap';
 
 /** Spectrogram — sliding STFT columns. Server sends one column per frame
  *  with dB values and a frequency axis. v0.1 keeps the last N columns in
@@ -74,7 +75,7 @@ export const spectrogram: PanelDef = {
       for (let b = 0; b < bins; b++) {
         const db = col[b];
         const n = Math.max(0, Math.min(1, (db - dbMin) / dbSpan));
-        ctx.fillStyle = colormap(n);
+        ctx.fillStyle = viridis(n);
         const py = pb.top + pb.height - (b + 1) * rowH;
         ctx.fillRect(px, py, Math.ceil(colW), Math.ceil(rowH));
       }
@@ -135,14 +136,6 @@ function percentileRange(ring: SpectrogramFrame[], pLo: number, pHi: number): [n
   const hi = samples[Math.floor(samples.length * pHi)];
   if (hi - lo < 1) return [lo - 0.5, hi + 0.5];
   return [lo, hi];
-}
-
-/** Black-body-ish colormap, 0..1 -> rgb. Fast, no LUT. */
-function colormap(n: number): string {
-  const r = Math.round(255 * Math.min(1, n * 3));
-  const g = Math.round(255 * Math.min(1, Math.max(0, n * 3 - 1)));
-  const b = Math.round(255 * Math.min(1, Math.max(0, n * 3 - 2)));
-  return `rgb(${r},${g},${b})`;
 }
 
 function drawPlaceholder(ctx: CanvasRenderingContext2D, w: number, h: number, msg: string) {

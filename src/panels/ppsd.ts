@@ -3,6 +3,7 @@ import {
   AXIS_PAD, COLOR_GRID, COLOR_LABEL, Y_TICK_LABEL_RIGHT_OFFSET,
   drawFrame, drawYCaption, niceStep, plotBounds,
 } from './axes';
+import { viridis } from './colormap';
 
 /** PPSD — Probabilistic Power Spectral Density. Server accumulates one
  *  Welch PSD per minute into a 2-D histogram (frequency × dB); we paint
@@ -91,7 +92,7 @@ export const ppsd: PanelDef = {
         const c = f.hist[i][j];
         if (c === 0) continue;
         const n = c / maxCount;        // 0..1
-        ctx.fillStyle = colormap(n);
+        ctx.fillStyle = viridis(n);
         const y = pb.top + ((dbViewHi - dbCenters[j]) / dbViewSpan) * pb.height;
         ctx.fillRect(x, y - cellH / 2, Math.ceil(cellW) + 1, Math.ceil(cellH) + 1);
       }
@@ -167,15 +168,6 @@ export const ppsd: PanelDef = {
                  pb.right - 4, pb.top + 2);
   },
 };
-
-/** Black-body-ish colormap, 0..1 -> rgb. Same as spectrogram for
- *  visual consistency. */
-function colormap(n: number): string {
-  const r = Math.round(255 * Math.min(1, n * 3));
-  const g = Math.round(255 * Math.min(1, Math.max(0, n * 3 - 1)));
-  const b = Math.round(255 * Math.min(1, Math.max(0, n * 3 - 2)));
-  return `rgb(${r},${g},${b})`;
-}
 
 function placeholder(ctx: CanvasRenderingContext2D, w: number, h: number, msg: string) {
   ctx.fillStyle = '#8a8a8a';
