@@ -1,4 +1,3 @@
-import { panelRegistry } from '../panels/registry';
 import { resetSpectrogram } from '../panels/spectrogram';
 import { resetDrum, setDrumOverlays } from '../panels/drum';
 import { TremiomClient } from '../transport/ws';
@@ -10,9 +9,9 @@ import { mountEventList } from './event-list';
 import { mountWorldMap } from './world-map';
 import { mountRecordSection } from './record-section';
 import { openSettings } from './settings';
+import { mountDashboard, type DashboardHandle } from './dashboard';
+import { mountPanelPicker } from './panel-picker';
 import type { SeismicEvent } from '../data/events';
-
-const INITIAL_PANELS = ['drum', 'spectrogram', 'sta-lta', 'particle-motion', 'ppsd'];
 
 export function mountApp(root: HTMLElement, version: string): void {
   root.innerHTML = '';
@@ -27,6 +26,7 @@ export function mountApp(root: HTMLElement, version: string): void {
     <span id="picker-mount"></span>
     <span class="muted">filter:</span>
     <span id="filter-mount"></span>
+    <span id="panel-picker-mount"></span>
     <button class="live-btn hidden" id="live-btn" title="Return to live mode">← Live</button>
     <span class="muted" id="conn">connecting…</span>
     <button class="settings-btn" id="settings-btn" title="Settings" aria-label="Settings">⚙</button>
@@ -38,21 +38,19 @@ export function mountApp(root: HTMLElement, version: string): void {
   mapHost.className = 'map-host';
   root.appendChild(mapHost);
 
-  // ── Body (sidebar + grid) ───────────────────────────────────────────
+  // ── Body (sidebar + dashboard) ──────────────────────────────────────
   const body = document.createElement('div');
   body.className = 'body';
   root.appendChild(body);
 
-  // ── State + transport ───────────────────────────────────────────────
+  // ── State ───────────────────────────────────────────────────────────
   let currentStation = DEFAULT_STATION;
   let currentEventId: string | null = null;
   let firstFrameAt: number | null = null;
   const subscribedAt = Date.now();
   let currentFilter: FilterSpec = DEFAULT_FILTER;
 
-  // Drum overlay state: events from the latest USGS poll + the active
-  // station's coords (when known). Seeded from the curated presets;
-  // FDSN-searched stations get added as the user picks them.
+  // Drum overlay state — events + station coords for predicted-arrival markers.
   let currentEvents: SeismicEvent[] = [];
   const stationCoords = new Map<string, { lat: number; lon: number }>();
   for (const s of STATION_PRESETS) stationCoords.set(s.nslc, { lat: s.lat, lon: s.lon });
@@ -60,9 +58,6 @@ export function mountApp(root: HTMLElement, version: string): void {
     const c = stationCoords.get(currentStation);
     setDrumOverlays(currentEvents, c?.lat ?? null, c?.lon ?? null);
   }
-  // If we don't already know the coords for the active station, ask the
-  // server. /api/stations/lookup proxies FDSN station-service and caches
-  // for 1 h. Once resolved, push into the cache and re-render overlays.
   async function ensureStationCoords(nslc: string) {
     if (stationCoords.has(nslc)) return;
     try {
@@ -74,8 +69,6 @@ export function mountApp(root: HTMLElement, version: string): void {
       if (nslc === currentStation) refreshDrumOverlays();
     } catch { /* network blip — leave coords unknown */ }
   }
-  // The Browse modal emits this when a searched station is picked, so
-  // we can cache its coords for drum overlays.
   window.addEventListener('tremiom:station-coords', (ev: Event) => {
     const d = (ev as CustomEvent).detail as { nslc: string; lat: number; lon: number };
     if (d?.nslc && Number.isFinite(d.lat) && Number.isFinite(d.lon)) {
@@ -84,12 +77,44 @@ export function mountApp(root: HTMLElement, version: string): void {
     }
   });
 
+  // ── Sidebar ─────────────────────────────────────────────────────────
+  const sidebarHost = document.createElement('div');
+  sidebarHost.className = 'sidebar-host';
+  body.appendChild(sidebarHost);
+
+  // ── Main area: dashboard (live mode) ⇄ record-section (event mode) ─
+  const mainArea = document.createElement('div');
+  mainArea.className = 'main-area';
+  body.appendChild(mainArea);
+
+  // Live mode container — the gridstack dashboard mounts inside.
+  const dashHost = document.createElement('div');
+  dashHost.className = 'dash-host';
+  mainArea.appendChild(dashHost);
+
+  // Event mode container.
+  const eventHost = document.createElement('div');
+  eventHost.className = 'event-host hidden';
+  mainArea.appendChild(eventHost);
+  const recordSection = mountRecordSection(eventHost);
+
+  // The dashboard ⇄ subscription bridge: the dashboard tells us which
+  // panels are mounted; we re-subscribe with that list so the worker
+  // only computes what's visible.
+  let dashboard: DashboardHandle;
+  let activePanels: string[] = [];
+  function onActiveChanged(ids: string[]) {
+    activePanels = ids;
+    // Re-subscribe with the new set so the worker stops/starts panels.
+    client.subscribe(currentStation, activePanels);
+  }
+  dashboard = mountDashboard(dashHost, { onActiveChanged });
+
+  // ── Transport ───────────────────────────────────────────────────────
   const client = new TremiomClient({
     onStatus(s) {
       const el = document.getElementById('conn');
       if (!el) return;
-      // Decorate with first-frame status so the user knows the
-      // expected ~10-20 s SeedLink handshake is in progress.
       if (firstFrameAt === null && s === 'connected') {
         const elapsed = ((Date.now() - subscribedAt) / 1000).toFixed(0);
         el.textContent = `connected · waiting for first sample (${elapsed}s)`;
@@ -107,11 +132,11 @@ export function mountApp(root: HTMLElement, version: string): void {
           el.textContent = `live · first frame at +${latency}s`;
         }
       }
-      renderers.get(panelId)?.draw(frame);
+      dashboard.setFrame(panelId, frame);
     },
   });
 
-  // Refresh the "waiting for first sample" counter once a second.
+  // First-frame countdown ticker.
   const connTicker = window.setInterval(() => {
     if (firstFrameAt !== null) return;
     const el = document.getElementById('conn');
@@ -120,64 +145,31 @@ export function mountApp(root: HTMLElement, version: string): void {
       el.textContent = `connected · waiting for first sample (${elapsed}s)`;
     }
   }, 1000);
-  // Stop the ticker once we have a frame.
   window.setTimeout(() => {
     if (firstFrameAt !== null) window.clearInterval(connTicker);
   }, 60_000);
 
-  // ── Sidebar (event list) ────────────────────────────────────────────
-  const sidebarHost = document.createElement('div');
-  sidebarHost.className = 'sidebar-host';
-  body.appendChild(sidebarHost);
-
-  // ── Main area: either live grid OR event record-section ────────────
-  const mainArea = document.createElement('div');
-  mainArea.className = 'main-area';
-  body.appendChild(mainArea);
-
-  // Live mode grid.
-  const grid = document.createElement('div');
-  grid.className = 'grid';
-  mainArea.appendChild(grid);
-
-  // Event mode container (record section).
-  const eventHost = document.createElement('div');
-  eventHost.className = 'event-host hidden';
-  mainArea.appendChild(eventHost);
-  const recordSection = mountRecordSection(eventHost);
-
-  const renderers = new Map<string, ReturnType<typeof mountPanel>>();
-  for (const id of INITIAL_PANELS) {
-    const panel = panelRegistry[id];
-    if (!panel) continue;
-    renderers.set(id, mountPanel(grid, panel.label, panel));
-  }
-
+  // ── Live / Event mode switch ────────────────────────────────────────
   function showLive() {
-    grid.classList.remove('hidden');
+    dashHost.classList.remove('hidden');
     eventHost.classList.add('hidden');
     const lb = document.getElementById('live-btn');
     if (lb) lb.classList.add('hidden');
   }
   function showEvent() {
-    grid.classList.add('hidden');
+    dashHost.classList.add('hidden');
     eventHost.classList.remove('hidden');
     const lb = document.getElementById('live-btn');
     if (lb) lb.classList.remove('hidden');
   }
 
-  // ── Map + sidebar wired to shared state ─────────────────────────────
+  // ── Map + sidebar + station/event coordination ──────────────────────
   function pickEvent(e: SeismicEvent | null) {
     currentEventId = e?.id ?? null;
     worldMap.setSelectedEvent(currentEventId);
     eventList.setSelectedEvent(currentEventId);
-    if (e) {
-      showEvent();
-      void recordSection.setEvent(e);
-    } else {
-      showLive();
-      void recordSection.setEvent(null);
-    }
+    if (e) { showEvent(); void recordSection.setEvent(e); }
+    else   { showLive(); void recordSection.setEvent(null); }
   }
 
   function switchStation(next: string) {
@@ -185,20 +177,17 @@ export function mountApp(root: HTMLElement, version: string): void {
     client.unsubscribe(currentStation);
     resetSpectrogram();
     resetDrum();
-    for (const r of renderers.values()) r.clear();
+    dashboard.clear();
     currentStation = next;
     firstFrameAt = null;
     const subAt = Date.now();
-    // Re-show the "waiting for first sample" status for the new station.
     const el = document.getElementById('conn');
     if (el) el.textContent = `connected · waiting for first sample (0s)`;
     worldMap.setActiveStation(next);
     picker.setStation(next);
     refreshDrumOverlays();
     void ensureStationCoords(currentStation);
-    client.subscribe(currentStation, INITIAL_PANELS);
-    // Filters are keyed by station server-side, so re-apply the current
-    // selection for the new station.
+    client.subscribe(currentStation, activePanels);
     if (currentFilter.kind !== 'none') {
       client.setFilter(currentStation, {
         kind: currentFilter.kind,
@@ -206,7 +195,6 @@ export function mountApp(root: HTMLElement, version: string): void {
         high: currentFilter.high,
       });
     }
-    // Local first-frame timer for the new station.
     const subTimer = window.setInterval(() => {
       if (firstFrameAt !== null) { window.clearInterval(subTimer); return; }
       const conn = document.getElementById('conn');
@@ -233,11 +221,10 @@ export function mountApp(root: HTMLElement, version: string): void {
     },
   });
 
-  // ── Station picker ──────────────────────────────────────────────────
+  // ── Topbar controls ─────────────────────────────────────────────────
   const pickerMount = document.getElementById('picker-mount')!;
   const picker = mountStationPicker(pickerMount, currentStation, switchStation);
 
-  // ── Filter picker ───────────────────────────────────────────────────
   const filterMount = document.getElementById('filter-mount')!;
   mountFilterPicker(filterMount, currentFilter, (spec) => {
     currentFilter = spec;
@@ -248,49 +235,21 @@ export function mountApp(root: HTMLElement, version: string): void {
     });
   });
 
-  // "← Live" button to leave event mode.
-  document.getElementById('live-btn')?.addEventListener('click', () => {
-    pickEvent(null);
+  const panelPickerMount = document.getElementById('panel-picker-mount')!;
+  mountPanelPicker(panelPickerMount, {
+    isActive: (id) => activePanels.includes(id),
+    onAdd:    (id) => dashboard.addPanel(id),
+    onRemove: (id) => dashboard.removePanel(id),
+    onReset:  () => dashboard.resetLayout(),
   });
 
-  // Settings gear → modal with auth state + sign-out + token field.
+  document.getElementById('live-btn')?.addEventListener('click', () => pickEvent(null));
   document.getElementById('settings-btn')?.addEventListener('click', openSettings);
 
-  // Initial overlay + subscription.
+  // Initial overlay + subscription. The dashboard already announced its
+  // active set via onActiveChanged() in mountDashboard, which fired the
+  // first subscribe — but we still want to lock in the coords and any
+  // active filter at boot.
   refreshDrumOverlays();
   void ensureStationCoords(currentStation);
-  client.subscribe(currentStation, INITIAL_PANELS);
-}
-
-function mountPanel(
-  parent: HTMLElement,
-  label: string,
-  panel: (typeof import('../panels/registry').panelRegistry)[string]
-) {
-  const el = document.createElement('div');
-  el.className = 'panel';
-  el.innerHTML = `<header>${label}</header>`;
-  const canvas = document.createElement('canvas');
-  el.appendChild(canvas);
-  parent.appendChild(el);
-
-  const ctx = canvas.getContext('2d')!;
-  const ro = new ResizeObserver(() => {
-    const dpr = window.devicePixelRatio || 1;
-    const w = canvas.clientWidth;
-    const h = canvas.clientHeight;
-    canvas.width = Math.max(1, Math.floor(w * dpr));
-    canvas.height = Math.max(1, Math.floor(h * dpr));
-    ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
-  });
-  ro.observe(canvas);
-
-  return {
-    draw(frame: unknown) {
-      panel.render(ctx, canvas, frame);
-    },
-    clear() {
-      panel.render(ctx, canvas, null);
-    },
-  };
 }
