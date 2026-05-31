@@ -11,6 +11,7 @@ import { mountUnitsPicker, DEFAULT_UNITS } from './units-picker';
 import { mountEventList } from './event-list';
 import { mountWorldMap } from './world-map';
 import { mountRecordSection } from './record-section';
+import { mountHistoryView } from './history-view';
 import { openSettings } from './settings';
 import { mountDashboard, type DashboardHandle } from './dashboard';
 import { mountPanelPicker } from './panel-picker';
@@ -38,6 +39,7 @@ export function mountApp(root: HTMLElement, version: string): void {
     <span id="panel-picker-mount"></span>
     <button class="pin-btn" id="pin-btn" title="Pin current trace to the Wave clipboard">📌 Pin</button>
     <span id="alert-picker-mount"></span>
+    <button class="hist-btn" id="hist-btn" title="Browse arbitrary time windows">🕓 History</button>
     <button class="live-btn hidden" id="live-btn" title="Return to live mode">← Live</button>
     <span class="muted" id="conn">connecting…</span>
     <button class="settings-btn" id="settings-btn" title="Settings" aria-label="Settings">⚙</button>
@@ -110,6 +112,16 @@ export function mountApp(root: HTMLElement, version: string): void {
   eventHost.className = 'event-host hidden';
   mainArea.appendChild(eventHost);
   const recordSection = mountRecordSection(eventHost);
+
+  // History (waveform-browser) mode container.
+  const historyHost = document.createElement('div');
+  historyHost.className = 'history-host hidden';
+  mainArea.appendChild(historyHost);
+  const historyView = mountHistoryView(historyHost, {
+    station: () => currentStation,
+    units: () => currentUnits,
+    filter: () => currentFilter,
+  });
 
   // The dashboard ⇄ subscription bridge: the dashboard tells us which
   // panels are mounted; we re-subscribe with that list so the worker
@@ -221,14 +233,26 @@ export function mountApp(root: HTMLElement, version: string): void {
   function showLive() {
     dashHost.classList.remove('hidden');
     eventHost.classList.add('hidden');
-    const lb = document.getElementById('live-btn');
-    if (lb) lb.classList.add('hidden');
+    historyHost.classList.add('hidden');
+    historyView.hide();
+    document.getElementById('live-btn')?.classList.add('hidden');
+    document.getElementById('hist-btn')?.classList.remove('hidden');
   }
   function showEvent() {
     dashHost.classList.add('hidden');
     eventHost.classList.remove('hidden');
-    const lb = document.getElementById('live-btn');
-    if (lb) lb.classList.remove('hidden');
+    historyHost.classList.add('hidden');
+    historyView.hide();
+    document.getElementById('live-btn')?.classList.remove('hidden');
+    document.getElementById('hist-btn')?.classList.remove('hidden');
+  }
+  function showHistory() {
+    dashHost.classList.add('hidden');
+    eventHost.classList.add('hidden');
+    historyHost.classList.remove('hidden');
+    historyView.show();
+    document.getElementById('live-btn')?.classList.remove('hidden');
+    document.getElementById('hist-btn')?.classList.add('hidden');
   }
 
   // ── Map + sidebar + station/event coordination ──────────────────────
@@ -276,6 +300,7 @@ export function mountApp(root: HTMLElement, version: string): void {
       }
     }, 1000);
     window.setTimeout(() => window.clearInterval(subTimer), 60_000);
+    historyView.refresh(); // if History mode is open, re-fetch new station
   }
 
   const worldMap = mountWorldMap(mapHost, {
@@ -305,12 +330,14 @@ export function mountApp(root: HTMLElement, version: string): void {
       low:  spec.low,
       high: spec.high,
     });
+    historyView.refresh();
   });
 
   const unitsMount = document.getElementById('units-mount')!;
   mountUnitsPicker(unitsMount, currentUnits, (units) => {
     currentUnits = units;
     client.setUnits(currentStation, units);
+    historyView.refresh();
   });
 
   const panelPickerMount = document.getElementById('panel-picker-mount')!;
@@ -324,7 +351,11 @@ export function mountApp(root: HTMLElement, version: string): void {
   const alertMount = document.getElementById('alert-picker-mount')!;
   mountAlertPicker(alertMount, () => resubscribe());
 
-  document.getElementById('live-btn')?.addEventListener('click', () => pickEvent(null));
+  document.getElementById('hist-btn')?.addEventListener('click', () => showHistory());
+  document.getElementById('live-btn')?.addEventListener('click', () => {
+    historyView.hide();
+    pickEvent(null);
+  });
   document.getElementById('settings-btn')?.addEventListener('click', openSettings);
 
   document.getElementById('pin-btn')?.addEventListener('click', () => {

@@ -459,6 +459,35 @@ async function handleEventLocate(req, res) {
   proc.stdin.end();
 }
 
+// ─── Arbitrary-window waveform fetch (History mode) ───────────────────────
+async function handleWaveform(req, res) {
+  if (req.method !== 'POST') { res.writeHead(405).end(); return; }
+  let body;
+  try { body = await readBody(req); } catch { res.writeHead(400).end(); return; }
+  // Validate JSON early.
+  try { JSON.parse(body); } catch {
+    res.writeHead(400, { 'content-type': 'application/json' });
+    res.end(JSON.stringify({ error: 'bad json' })); return;
+  }
+  const proc = spawn(PYTHON, ['workers/waveform_fetch.py'], {
+    stdio: ['pipe', 'pipe', 'inherit'],
+  });
+  let stdout = '';
+  const timer = setTimeout(() => proc.kill('SIGTERM'), 60_000);
+  proc.stdout.on('data', (c) => { stdout += c.toString('utf8'); });
+  proc.on('exit', (code) => {
+    clearTimeout(timer);
+    if (code !== 0 || !stdout) {
+      res.writeHead(502, { 'content-type': 'application/json' });
+      res.end(JSON.stringify({ error: 'waveform fetch failed', code })); return;
+    }
+    res.writeHead(200, { 'content-type': 'application/json' });
+    res.end(stdout);
+  });
+  proc.stdin.write(body);
+  proc.stdin.end();
+}
+
 async function handleEventExport(req, res) {
   if (req.method !== 'POST') { res.writeHead(405).end(); return; }
   let body;
@@ -741,6 +770,10 @@ const httpServer = http.createServer((req, res) => {
   }
   if (req.url?.startsWith('/api/event/magnitude')) {
     handleEventMagnitude(req, res);
+    return;
+  }
+  if (req.url?.startsWith('/api/waveform')) {
+    handleWaveform(req, res);
     return;
   }
   if (req.url?.startsWith('/api/event/locate')) {
