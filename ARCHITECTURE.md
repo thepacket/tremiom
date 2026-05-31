@@ -209,12 +209,15 @@ panels (you already have the math from Radiom) once the skeleton is up.
 - [x] Click an event → record-section against N nearest stations, with
       TauP-predicted P/S arrival overlays (iasp91 model, IRIS FDSN
       dataselect, 5-minute event cache)
-- [ ] USGS event feed → event list in sidebar
-- [ ] Click an event → event-map panel + record-section
-- [ ] README with "what is Tremiom" + screenshots
+- [x] Axes with ticks + labels on every live panel (helicorder, raw
+      scope, spectrogram, PSD share a registry of axis helpers)
 - [x] Dockerfile + fly.toml (multi-stage build: Node frontend +
       ObsPy venv + final runtime; primary_region=yyz, 1 CPU/1024 MB,
       auto_stop_machines=stop)
+- [x] Whole-app TREMIOM_TOKEN gate for private deployments — login form
+      page, HttpOnly/SameSite=Lax/Secure cookie, /api/auth/{login,
+      logout,status} exempt endpoints, ⚙ Settings panel in the topbar
+      showing live auth state with Sign Out + re-auth fields
 
 ---
 
@@ -222,13 +225,27 @@ panels (you already have the math from Radiom) once the skeleton is up.
 
 1. **Upstream SeedLink etiquette.** IRIS asks real-time clients to
    identify themselves and limit channel count. Need a `User-Agent`-like
-   selector strategy and per-station rate-limit before going public.
-2. **Storage.** v0.1 keeps everything in-memory ring buffers. Do we want
-   on-disk miniSEED archiving for "rewind" UX, or punt to FDSN historical
-   queries? (Lean: punt for v0.1.)
-3. **Auth / multi-tenant.** Public demo or single-user-on-localhost
-   first? Affects whether the multiplexer needs per-client quota.
-4. **Raspberry Shake integration.** Their public SeedLink server is
-   `data.raspberryshake.org:18000`. Worth adding a curated "interesting
-   Shake stations" list as a built-in catalog for the hobbyist audience.
+   selector strategy and per-station rate-limit before opening the
+   instance up beyond a single owner.
+2. **Storage.** Everything is in-memory ring buffers. Do we want on-disk
+   miniSEED archiving for "rewind" UX, or punt to FDSN historical
+   queries? (Lean: punt.)
+3. **Raspberry Shake curated list.** The picker can already *find* AM
+   stations via FDSN station-service search. A curated "interesting
+   Shake stations" preset list (educational sites, well-known operators)
+   would be a nice next-step for the hobbyist audience.
+
+## Security model
+
+- **Single-owner token gate.** `TREMIOM_TOKEN` env var; when unset, the
+  server is open (the default for local dev). When set, every HTTP and
+  WebSocket request must present a matching cookie. Login is via a
+  password form (POST `/api/auth/login`); the cookie is `HttpOnly;
+  SameSite=Lax; Secure; Max-Age=1y`. Validation is constant-time.
+- **Secrets never live in the repo.** `.env*`, `*.pem`, `*.key`,
+  `secrets.*`, etc. are gitignored. Fly.io secrets are managed via
+  `fly secrets`, encrypted at rest, injected at runtime — they are
+  not in the Docker image.
+- **Rotate** by `fly secrets set TREMIOM_TOKEN=<new>` + `fly deploy`;
+  every existing cookie becomes invalid immediately.
 

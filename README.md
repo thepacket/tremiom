@@ -175,6 +175,13 @@ checklist at the bottom of `ARCHITECTURE.md`.
 The `TREMIOM_SYNTHETIC=1` environment variable forces synthetic
 ingestion if you want to develop the UI without an internet connection.
 
+## Security
+
+See [`SECURITY.md`](./SECURITY.md) for the threat model, cookie flags,
+and what is / isn't in the repo. **No secrets are committed**: `.env`,
+keys, and Fly secret values are gitignored and managed via
+`fly secrets set …`.
+
 ## Contributing
 
 tremiom is a solo-authored project and **does not accept pull requests**.

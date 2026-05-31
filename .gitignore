@@ -1,8 +1,30 @@
 node_modules/
 dist/
 .DS_Store
+
+# Environment files — never commit. fly.io secrets live in `fly secrets`,
+# not in this repo.
 .env
-.env.local
+.env.*
+!.env.example
+
+# Anything that looks like a key/cert/keystore — defense in depth.
+*.pem
+*.key
+*.p12
+*.pfx
+*.jks
+id_rsa
+id_rsa.*
+id_ed25519
+id_ed25519.*
+.secrets
+secrets.*
+
+# Local fly state.
+.fly/
+
+# Log scratch.
 *.log
 
 # Python
