@@ -340,6 +340,62 @@ async function readBody(req) {
   });
 }
 
+// ─── USGS per-event detail (focal mechanism / moment tensor) ──────────────
+const detailCache = new Map(); // eventId -> { ts, body }
+const DETAIL_TTL_MS = 30 * 60_000;
+
+async function handleEventDetail(req, res) {
+  const url = new URL(req.url, 'http://x');
+  const id = (url.searchParams.get('id') || '').trim();
+  if (!/^[A-Za-z0-9]{6,20}$/.test(id)) {
+    res.writeHead(400, { 'content-type': 'application/json' });
+    res.end(JSON.stringify({ error: 'bad id' }));
+    return;
+  }
+  const now = Date.now();
+  const cached = detailCache.get(id);
+  if (cached && now - cached.ts < DETAIL_TTL_MS) {
+    res.writeHead(200, { 'content-type': 'application/json', 'x-cache': 'HIT' });
+    res.end(cached.body);
+    return;
+  }
+  try {
+    const upstream = await fetch(
+      `https://earthquake.usgs.gov/earthquakes/feed/v1.0/detail/${id}.geojson`,
+      { headers: { 'user-agent': 'tremiom (https://github.com/thepacket/tremiom)' } }
+    );
+    if (!upstream.ok) {
+      res.writeHead(upstream.status, { 'content-type': 'application/json' });
+      res.end(JSON.stringify({ error: 'upstream', status: upstream.status }));
+      return;
+    }
+    const j = await upstream.json();
+    const prods = j?.properties?.products || {};
+    const mech = (prods['moment-tensor'] || [])[0] || (prods['focal-mechanism'] || [])[0];
+    let out = { id, hasMechanism: false };
+    if (mech) {
+      const p = mech.properties || {};
+      const strike = parseFloat(p['nodal-plane-1-strike']);
+      const dip    = parseFloat(p['nodal-plane-1-dip']);
+      const rake   = parseFloat(p['nodal-plane-1-rake']);
+      if (isFinite(strike) && isFinite(dip) && isFinite(rake)) {
+        out = {
+          id, hasMechanism: true, strike, dip, rake,
+          derivedMag: parseFloat(p['derived-magnitude']) || null,
+          magType: p['derived-magnitude-type'] || null,
+        };
+      }
+    }
+    const body = JSON.stringify(out);
+    detailCache.set(id, { ts: now, body });
+    res.writeHead(200, { 'content-type': 'application/json', 'x-cache': 'MISS' });
+    res.end(body);
+  } catch (e) {
+    res.writeHead(502, { 'content-type': 'application/json' });
+    res.end(JSON.stringify({ error: 'fetch failed', detail: String(e?.message || e) }));
+  }
+}
+
 async function handleEventFetch(req, res) {
   if (req.method !== 'POST') {
     res.writeHead(405); res.end(); return;
@@ -573,6 +629,10 @@ const httpServer = http.createServer((req, res) => {
     if (!isAuthorized(req)) { sendUnauthorized(req, res); return; }
   }
 
+  if (req.url?.startsWith('/api/event/detail')) {
+    handleEventDetail(req, res);
+    return;
+  }
   if (req.url?.startsWith('/api/events')) {
     handleUsgs(req, res);
     return;

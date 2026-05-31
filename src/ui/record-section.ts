@@ -32,6 +32,7 @@ export function mountRecordSection(parent: HTMLElement): RecordSectionHandle {
     <header>
       <span class="title">record section</span>
       <span class="muted info"></span>
+      <canvas class="rs-beachball" width="48" height="48" title="Focal mechanism"></canvas>
     </header>
     <div class="rs-body">
       <canvas></canvas>
@@ -40,9 +41,10 @@ export function mountRecordSection(parent: HTMLElement): RecordSectionHandle {
   `;
   parent.appendChild(root);
 
-  const canvas = root.querySelector('canvas') as HTMLCanvasElement;
+  const canvas = root.querySelector('.rs-body canvas') as HTMLCanvasElement;
   const info   = root.querySelector('.info')   as HTMLElement;
   const status = root.querySelector('.rs-status') as HTMLElement;
+  const bbCanvas = root.querySelector('.rs-beachball') as HTMLCanvasElement;
   const ctx = canvas.getContext('2d')!;
 
   let waveforms: EventWaveforms | null = null;
@@ -207,9 +209,33 @@ export function mountRecordSection(parent: HTMLElement): RecordSectionHandle {
     }
   }
 
+  function clearBeachball() {
+    bbCanvas.style.display = 'none';
+  }
+
+  async function loadMechanism(e: SeismicEvent, myToken: number): Promise<void> {
+    clearBeachball();
+    try {
+      const r = await fetch(`/api/event/detail?id=${encodeURIComponent(e.id)}`);
+      if (!r.ok || myToken !== token || currentEvent?.id !== e.id) return;
+      const d = await r.json() as {
+        hasMechanism?: boolean; strike?: number; dip?: number; rake?: number;
+      };
+      if (!d.hasMechanism || myToken !== token || currentEvent?.id !== e.id) return;
+      const bctx = bbCanvas.getContext('2d')!;
+      const { drawBeachball } = await import('./beachball');
+      drawBeachball(bctx, 24, 24, 22, d.strike!, d.dip!, d.rake!, {
+        fill: '#e0533a', bg: '#0d0d0d', stroke: '#6a737b',
+      });
+      bbCanvas.title = `Focal mechanism — strike ${d.strike!.toFixed(0)}° dip ${d.dip!.toFixed(0)}° rake ${d.rake!.toFixed(0)}°`;
+      bbCanvas.style.display = 'block';
+    } catch { /* no mechanism / network blip — leave hidden */ }
+  }
+
   async function setEvent(e: SeismicEvent | null): Promise<void> {
     currentEvent = e;
     waveforms = null;
+    clearBeachball();
     if (!e) {
       info.textContent = '';
       setStatus('no event selected');
@@ -221,6 +247,7 @@ export function mountRecordSection(parent: HTMLElement): RecordSectionHandle {
     setStatus('fetching nearest stations + TauP arrivals…');
     draw();
     const myToken = ++token;
+    void loadMechanism(e, myToken);
     try {
       const w = await fetchEventWaveforms(e, { nStations: 6 });
       if (myToken !== token || currentEvent?.id !== e.id) return; // superseded
