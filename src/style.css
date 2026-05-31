@@ -8,6 +8,9 @@
   --panel-border: #2a2a2a;
   /* Two-row topbar height. Everything below the topbar offsets by this. */
   --topbar-h: 64px;
+  /* World-map header height. Tall enough that the inhabited latitude band
+   * (and station markers) read clearly instead of being squished. */
+  --map-h: 340px;
   font-family: ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
 }
 
@@ -30,7 +33,7 @@ html, body {
 }
 
 .map-host {
-  height: 220px;
+  height: var(--map-h);
   border-bottom: 1px solid var(--panel-border);
   background: var(--bg);
   position: relative;
@@ -59,7 +62,7 @@ html, body {
   /* Body fills the viewport area below topbar + map at minimum, and
    * grows beyond when the plot grid demands more vertical space.
    * The document scrollbar handles the overflow. */
-  min-height: calc(100vh - var(--topbar-h) - 220px);
+  min-height: calc(100vh - var(--topbar-h) - var(--map-h));
 }
 
 .sidebar-host { display: contents; }
@@ -173,7 +176,7 @@ html, body {
 .history-view {
   display: grid;
   grid-template-rows: 32px minmax(0, 1fr);
-  height: calc(100vh - var(--topbar-h) - 220px);
+  height: calc(100vh - var(--topbar-h) - var(--map-h));
   min-height: 360px;
   background: var(--panel-bg);
 }
@@ -266,7 +269,7 @@ html, body {
    * is what the user sees. The min-height gives the event-mode
    * record-section panel a defined height (its 30 px header +
    * 1 fr body needs a parent height to size to). */
-  min-height: calc(100vh - var(--topbar-h) - 220px);
+  min-height: calc(100vh - var(--topbar-h) - var(--map-h));
 }
 .main-area > * { grid-area: 1 / 1 / 2 / 2; }
 .main-area .hidden { display: none !important; }

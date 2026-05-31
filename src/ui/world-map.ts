@@ -35,8 +35,8 @@ interface HitTarget {
 const COLOR_GRATICULE  = '#1a2025';
 const COLOR_LAND       = '#1f2a30';
 const COLOR_LAND_STROKE = '#2c3a42';
-const COLOR_STATION    = '#7a8590';
-const COLOR_STATION_HI = '#ff8c1a';
+const COLOR_STATION    = '#5ec8ff';  // bright cyan — pops on dark land + ocean
+const COLOR_STATION_HI = '#ff8c1a';  // active station (orange)
 const COLOR_BG         = '#0d0d0d';
 
 export interface WorldMap {
@@ -172,23 +172,30 @@ export function mountWorldMap(
   }
 
   function drawStations() {
-    const size = 5;
     for (const s of STATION_PRESETS) {
       const [x, y] = project(s.lon, s.lat);
       const isActive = s.nslc === activeStation;
+      const size = isActive ? 8 : 6;
+      // Dark halo first so the marker reads against both dark land and
+      // ocean, then the bright fill, then a white edge for extra pop.
+      const tri = () => {
+        ctx.beginPath();
+        ctx.moveTo(x, y - size);
+        ctx.lineTo(x - size, y + size * 0.75);
+        ctx.lineTo(x + size, y + size * 0.75);
+        ctx.closePath();
+      };
+      ctx.lineJoin = 'round';
+      ctx.strokeStyle = 'rgba(0,0,0,0.85)';
+      ctx.lineWidth = 3;
+      tri(); ctx.stroke();
       ctx.fillStyle = isActive ? COLOR_STATION_HI : COLOR_STATION;
-      ctx.strokeStyle = '#000';
-      ctx.lineWidth = 0.5;
-      // Upward triangle.
-      ctx.beginPath();
-      ctx.moveTo(x, y - size);
-      ctx.lineTo(x - size, y + size * 0.7);
-      ctx.lineTo(x + size, y + size * 0.7);
-      ctx.closePath();
-      ctx.fill();
-      ctx.stroke();
+      tri(); ctx.fill();
+      ctx.strokeStyle = 'rgba(255,255,255,0.85)';
+      ctx.lineWidth = 1;
+      tri(); ctx.stroke();
       hitTargets.push({
-        kind: 'station', x, y, r: size * 1.5, payload: s.nslc,
+        kind: 'station', x, y, r: size * 1.6, payload: s.nslc,
       });
     }
   }
