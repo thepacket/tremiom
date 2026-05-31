@@ -482,6 +482,44 @@ html, body {
 .panel-markdown.editing .md-rendered { display: none; }
 .panel-markdown.editing .md-edit { display: block; }
 
+/* ── Integrated help modal ──────────────────────────────────────────── */
+.help-modal { width: min(900px, 94vw); max-height: 86vh; grid-template-rows: 40px 1fr; }
+.help-modal > header { gap: 10px; }
+.help-modal .title { flex: 0 0 auto; }
+.help-search {
+  margin-left: auto; background: #0d0d0d; color: var(--fg);
+  border: 1px solid var(--panel-border); border-radius: 3px;
+  padding: 3px 8px; font: inherit; font-size: 12px; width: 200px;
+}
+.help-search:focus { outline: none; border-color: var(--accent); }
+.help-body { display: grid; grid-template-columns: 160px 1fr; min-height: 0; }
+.help-nav {
+  border-right: 1px solid var(--panel-border); padding: 8px;
+  display: flex; flex-direction: column; gap: 2px; overflow-y: auto;
+}
+.help-navlink {
+  text-align: left; background: transparent; border: none; color: var(--muted);
+  font: inherit; font-size: 12px; padding: 5px 8px; border-radius: 3px; cursor: pointer;
+}
+.help-navlink:hover { background: #1a1a1a; color: var(--accent); }
+.help-content { overflow-y: auto; padding: 4px 18px 18px; font-size: 13px; line-height: 1.5; }
+.help-content h2 {
+  font-size: 14px; color: var(--accent); margin: 18px 0 8px;
+  position: sticky; top: 0; background: var(--panel-bg); padding: 6px 0;
+  border-bottom: 1px solid var(--panel-border);
+}
+.help-content section:first-child h2 { margin-top: 6px; }
+.help-content p { margin: 6px 0; }
+.help-content ul { margin: 6px 0; padding-left: 1.3em; }
+.help-content li { margin: 3px 0; }
+.help-content code {
+  background: #1a1a1a; padding: 1px 4px; border-radius: 3px;
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 0.9em;
+}
+.help-table { width: 100%; border-collapse: collapse; }
+.help-table td { padding: 5px 8px; vertical-align: top; border-bottom: 1px solid #181818; }
+.help-table td:first-child { white-space: nowrap; color: var(--fg); width: 130px; }
+
 /* ── Dashboard selector bar ─────────────────────────────────────────── */
 .dashboard-bar { display: inline-flex; align-items: center; gap: 4px; }
 .dash-select {

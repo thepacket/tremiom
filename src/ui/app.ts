@@ -13,6 +13,7 @@ import { mountWorldMap } from './world-map';
 import { mountRecordSection } from './record-section';
 import { mountHistoryView } from './history-view';
 import { openSettings } from './settings';
+import { openHelp } from './help';
 import { mountDashboard, type DashboardHandle } from './dashboard';
 import { mountDashboardBar } from './dashboard-bar';
 import { mountPanelPicker } from './panel-picker';
@@ -44,6 +45,7 @@ export function mountApp(root: HTMLElement, version: string): void {
     <button class="hist-btn" id="hist-btn" title="Browse arbitrary time windows">🕓 History</button>
     <button class="live-btn hidden" id="live-btn" title="Return to live mode">← Live</button>
     <span class="muted" id="conn">connecting…</span>
+    <button class="settings-btn" id="help-btn" title="Help" aria-label="Help">?</button>
     <button class="settings-btn" id="settings-btn" title="Settings" aria-label="Settings">⚙</button>
   `;
   root.appendChild(topbar);
@@ -392,6 +394,7 @@ export function mountApp(root: HTMLElement, version: string): void {
     pickEvent(null);
   });
   document.getElementById('settings-btn')?.addEventListener('click', openSettings);
+  document.getElementById('help-btn')?.addEventListener('click', openHelp);
 
   document.getElementById('pin-btn')?.addEventListener('click', () => {
     if (!latestRawScope?.data?.length) return;
