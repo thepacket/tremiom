@@ -1,10 +1,15 @@
 import type { PanelDef } from './registry';
-import { AXIS_PAD, COLOR_LABEL, drawFrame } from './axes';
 
 /** Particle motion hodogram — the trajectory of horizontal ground motion
- *  in the N–E plane. Visually distinctive in seismology: P arrivals
- *  produce nearly-linear motion along the source–receiver azimuth;
- *  S waves and surface waves produce elliptical / 2D patterns. */
+ *  in the N–E (or 1–2) plane. The plot frame is a COMPLETE CIRCLE — its
+ *  radius is the largest one that fits inside the panel after reserving
+ *  space for the N/S/E/W cardinal labels. The trace is clipped to that
+ *  circle, so a sample at the auto-scaled peak lands exactly on the
+ *  outer ring and nothing ever escapes.
+ *
+ *  P arrivals produce nearly-linear motion along the source-receiver
+ *  azimuth; S waves + surface waves produce elliptical / 2D patterns.
+ */
 
 interface PMFrame {
   station: string;
@@ -12,14 +17,24 @@ interface PMFrame {
   windowS: number;
   n: number[];   // North component samples
   e: number[];   // East  component samples
-  chN: string;   // channel code like "BHN"
+  chN: string;   // channel code like "BHN" or "BH1"
   chE: string;
 }
 
-const COLOR_NEW = '#ff8c1a';   // most recent samples (head of the trace)
-const COLOR_OLD = '#22282d';   // tail
-const COLOR_GRID_LINE = '#1a2025';
-const COLOR_AXIS_TEXT = '#cfd2d4';
+const COLOR_HEAD       = '#ff8c1a';   // most recent sample dot
+const COLOR_OLD        = 0x22282d;    // tail color (packed RGB)
+const COLOR_NEW        = 0xff8c1a;    // head color (packed RGB)
+const COLOR_FRAME      = '#3a4248';
+const COLOR_GRID_INNER = '#1a2025';
+const COLOR_AXIS_TEXT  = '#cfd2d4';
+const COLOR_CAPTION    = '#cfd2d4';
+
+// Reserved space (px) for the cardinal labels OUTSIDE the circle.
+const LABEL_BAND = 14;
+// Gap between the circle and a label.
+const LABEL_GAP  = 4;
+// A tiny inner edge inset so the outer stroke isn't cropped by the box.
+const EDGE_INSET = 2;
 
 export const particleMotion: PanelDef = {
   id: 'particle-motion',
@@ -42,96 +57,104 @@ export const particleMotion: PanelDef = {
 };
 
 function drawHodogram(ctx: CanvasRenderingContext2D, w: number, h: number, f: PMFrame) {
-  // Pick a SQUARE plot area so polarization angles read accurately
-  // (a 2:1 panel would show 30° lines as 60° lines).
-  const { top, bottom, left, right } = AXIS_PAD;
-  const availW = Math.max(10, w - left - right);
-  const availH = Math.max(10, h - top - bottom);
-  const side = Math.min(availW, availH);
-  const padLeft = left + (availW - side) / 2;
-  const padTop  = top  + (availH - side) / 2;
-  const cx = padLeft + side / 2;
-  const cy = padTop  + side / 2;
+  // Largest circle that fits inside the panel after reserving label band
+  // + an inset, on every side. min(W, H) governs — the circle is
+  // perfectly round, never an oval.
+  const reserve = LABEL_BAND + LABEL_GAP + EDGE_INSET;
+  const outerR = Math.max(8, (Math.min(w, h) - 2 * reserve) / 2);
+  const cx = w / 2;
+  const cy = h / 2;
 
+  // Auto-scale: the trace's peak vector magnitude maps to the outer
+  // circle exactly — so every sample fits, and a sample at the peak
+  // exactly touches the frame.
   const n = f.n, e = f.e;
   const len = Math.min(n.length, e.length);
-
-  // Auto-scale around zero. The trace's distance from origin is
-  // sqrt(N² + E²) — NOT max(|N|, |E|) — so we must scale by the largest
-  // vector magnitude, otherwise diagonal excursions escape the plot box.
   let m = 0;
   for (let i = 0; i < len; i++) {
     const r = Math.hypot(n[i], e[i]);
     if (r > m) m = r;
   }
   if (m === 0) m = 1;
-  // 0.90 = small interior margin so the trace doesn't kiss the frame.
-  const scale = (side / 2 * 0.90) / m;
+  const scale = outerR / m;
 
-  // Background: cross-hairs + circular grid rings at 0.25 / 0.5 / 0.75 / 1.0.
-  ctx.strokeStyle = COLOR_GRID_LINE;
+  // ── Inner grid rings at 0.25, 0.5, 0.75 of peak.
+  ctx.strokeStyle = COLOR_GRID_INNER;
   ctx.lineWidth = 1;
-  for (const frac of [0.25, 0.5, 0.75, 1.0]) {
+  for (const frac of [0.25, 0.5, 0.75]) {
     ctx.beginPath();
-    ctx.arc(cx, cy, m * scale * frac, 0, Math.PI * 2);
+    ctx.arc(cx, cy, outerR * frac, 0, Math.PI * 2);
     ctx.stroke();
   }
+
+  // ── Cross-hairs (only inside the outer circle).
   ctx.beginPath();
-  ctx.moveTo(padLeft, cy);
-  ctx.lineTo(padLeft + side, cy);
-  ctx.moveTo(cx, padTop);
-  ctx.lineTo(cx, padTop + side);
+  ctx.moveTo(cx - outerR, cy); ctx.lineTo(cx + outerR, cy);
+  ctx.moveTo(cx, cy - outerR); ctx.lineTo(cx, cy + outerR);
   ctx.stroke();
 
-  // Direction labels at the four cardinal edges.
+  // ── Outer circle = the plot frame. Drawn at 1.5 px so it reads as a
+  // boundary, not "just another grid ring".
+  ctx.strokeStyle = COLOR_FRAME;
+  ctx.lineWidth = 1.5;
+  ctx.beginPath();
+  ctx.arc(cx, cy, outerR, 0, Math.PI * 2);
+  ctx.stroke();
+
+  // ── Cardinal labels just outside the outer circle.
   ctx.font = '11px ui-sans-serif, system-ui, sans-serif';
   ctx.fillStyle = COLOR_AXIS_TEXT;
-  ctx.textAlign = 'center';
+  ctx.textAlign = 'center'; ctx.textBaseline = 'bottom';
+  ctx.fillText('N', cx, cy - outerR - LABEL_GAP);
   ctx.textBaseline = 'top';
-  ctx.fillText('N', cx, padTop - 2);
-  ctx.textBaseline = 'bottom';
-  ctx.fillText('S', cx, padTop + side + 12);
-  ctx.textAlign = 'left';
-  ctx.textBaseline = 'middle';
-  ctx.fillText('E', padLeft + side + 2, cy);
+  ctx.fillText('S', cx, cy + outerR + LABEL_GAP);
+  ctx.textAlign = 'left'; ctx.textBaseline = 'middle';
+  ctx.fillText('E', cx + outerR + LABEL_GAP, cy);
   ctx.textAlign = 'right';
-  ctx.fillText('W', padLeft - 2, cy);
+  ctx.fillText('W', cx - outerR - LABEL_GAP, cy);
 
-  // Hodogram path: fade from old (gray) at the tail to new (orange) at
-  // the head. Drawn in many short segments so the gradient is visible.
+  // ── Trace, clipped to the circle (belt-and-braces: scale already
+  // keeps every sample inside, but clipping protects against any future
+  // bug in the scale math).
+  ctx.save();
+  ctx.beginPath();
+  ctx.arc(cx, cy, outerR, 0, Math.PI * 2);
+  ctx.clip();
+
+  // Gradient from gray (oldest) → orange (newest), 24-bit packed
+  // interpolation so we don't allocate strings repeatedly.
   ctx.lineWidth = 1;
+  const oldR = (COLOR_OLD >> 16) & 0xff, oldG = (COLOR_OLD >> 8) & 0xff, oldB = COLOR_OLD & 0xff;
+  const newR = (COLOR_NEW >> 16) & 0xff, newG = (COLOR_NEW >> 8) & 0xff, newB = COLOR_NEW & 0xff;
   for (let i = 1; i < len; i++) {
-    const t = i / (len - 1);  // 0 = oldest, 1 = newest
-    // Linear blend of old/new color components.
-    const r = Math.round(0x22 + (0xff - 0x22) * t);
-    const g = Math.round(0x28 + (0x8c - 0x28) * t);
-    const b = Math.round(0x2d + (0x1a - 0x2d) * t);
-    ctx.strokeStyle = `rgb(${r},${g},${b})`;
+    const t = i / (len - 1);
+    const rC = Math.round(oldR + (newR - oldR) * t);
+    const gC = Math.round(oldG + (newG - oldG) * t);
+    const bC = Math.round(oldB + (newB - oldB) * t);
+    ctx.strokeStyle = `rgb(${rC},${gC},${bC})`;
     ctx.beginPath();
     ctx.moveTo(cx + e[i - 1] * scale, cy - n[i - 1] * scale);
     ctx.lineTo(cx + e[i]     * scale, cy - n[i]     * scale);
     ctx.stroke();
   }
 
-  // Most recent sample as a small filled dot — the "current" point.
-  ctx.fillStyle = COLOR_NEW;
+  // Most recent sample dot.
+  ctx.fillStyle = COLOR_HEAD;
   ctx.beginPath();
   ctx.arc(cx + e[len - 1] * scale, cy - n[len - 1] * scale, 2.5, 0, Math.PI * 2);
   ctx.fill();
 
-  drawFrame(ctx, w, h);
+  ctx.restore();
 
-  // Top-right caption: window + channel codes + peak amplitude.
-  ctx.fillStyle = '#cfd2d4';
+  // ── Caption at the very top-right corner of the canvas.
+  ctx.fillStyle = COLOR_CAPTION;
   ctx.font = '10px ui-monospace, SFMono-Regular, Menlo, monospace';
   ctx.textAlign = 'right';
   ctx.textBaseline = 'top';
   ctx.fillText(
     `${f.chN} × ${f.chE} · ${f.windowS}s · ±${fmtAmp(m)}`,
-    w - 4, top - 4,
+    w - 4, 4,
   );
-
-  void COLOR_OLD; void COLOR_LABEL;
 }
 
 function fmtAmp(v: number): string {
