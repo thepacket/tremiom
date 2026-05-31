@@ -92,11 +92,19 @@ export function mountWorldMap(
   });
   ro.observe(canvas);
 
-  // Project longitude / latitude into canvas pixel space, with the
-  // current zoom (about centre) + pan applied.
+  // Default vertical framing: a populated latitude band rather than the
+  // full −90…90. The map header is wide and short, so spending half its
+  // height on the empty Arctic ocean and Antarctic interior squished the
+  // inhabited band (where stations + most events are) and pushed the
+  // northern hemisphere hard against the top edge. Framing to
+  // LAT_MAX…LAT_MIN gives the northern hemisphere proper room at the
+  // default view; pan/zoom still reaches the poles. LAT_MIN is kept south
+  // of the southernmost curated station (PMSA, −64.8°) so all markers show.
+  const LAT_MAX = 84;
+  const LAT_MIN = -72;
   function project(lon: number, lat: number): [number, number] {
     const x0 = ((lon + 180) / 360) * cssW;
-    const y0 = ((90 - lat) / 180) * cssH;
+    const y0 = ((LAT_MAX - lat) / (LAT_MAX - LAT_MIN)) * cssH;
     return [
       (x0 - cssW / 2) * zoom + cssW / 2 + panX,
       (y0 - cssH / 2) * zoom + cssH / 2 + panY,
