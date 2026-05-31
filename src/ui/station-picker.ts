@@ -42,7 +42,14 @@ export function mountStationPicker(
   browse.textContent = 'Browse…';
   browse.title = 'Search the FDSN station catalog (500+ stations)';
   browse.addEventListener('click', () => {
-    openStationSearch(null, (nslc) => {
+    openStationSearch(null, (nslc, hit) => {
+      // Park the hit's coords on a custom event so the app can cache
+      // them without making the picker contract know about overlays.
+      if (hit && hit.lat != null && hit.lon != null) {
+        window.dispatchEvent(new CustomEvent('tremiom:station-coords', {
+          detail: { nslc, lat: hit.lat, lon: hit.lon },
+        }));
+      }
       onChange(nslc);
       setStation(nslc);
     });

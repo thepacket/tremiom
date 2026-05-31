@@ -47,7 +47,7 @@ const CHANNEL_PRESETS: Array<{ value: string; label: string }> = [
 
 export function openStationSearch(
   initialQuery: { lat?: number; lon?: number } | null,
-  onPick: (nslc: string) => void,
+  onPick: (nslc: string, hit?: SearchedStation) => void,
 ): void {
   // Backdrop + modal shell.
   const backdrop = document.createElement('div');
@@ -96,6 +96,7 @@ export function openStationSearch(
 
   const status = $('.status');
   const results = $('.results') as HTMLUListElement;
+  let currentHits: SearchedStation[] = [];
 
   // Pre-fill radius search if the caller provided a lat/lon (e.g. from a
   // selected event).
@@ -138,6 +139,7 @@ export function openStationSearch(
         return;
       }
       status.textContent = `${j.count ?? j.stations.length} stations`;
+      currentHits = j.stations;
       results.innerHTML = j.stations.map((s) => `
         <li class="hit" data-nslc="${s.nslc}">
           <span class="nslc">${s.nslc}</span>
@@ -157,7 +159,11 @@ export function openStationSearch(
     const li = (e.target as HTMLElement).closest('.hit') as HTMLElement | null;
     if (!li) return;
     const nslc = li.dataset.nslc!;
-    onPick(nslc);
+    // Pass the full hit (with lat/lon) so the caller can cache station
+    // coords for downstream overlays (drum event markers, etc.).
+    const idx = Array.from(results.children).indexOf(li);
+    const hit = currentHits[idx];
+    onPick(nslc, hit);
     close();
   });
 

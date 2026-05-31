@@ -1,8 +1,8 @@
 import { panelRegistry } from '../panels/registry';
 import { resetSpectrogram } from '../panels/spectrogram';
-import { resetDrum } from '../panels/drum';
+import { resetDrum, setDrumOverlays } from '../panels/drum';
 import { TremiomClient } from '../transport/ws';
-import { DEFAULT_STATION } from '../data/stations';
+import { DEFAULT_STATION, STATION_PRESETS } from '../data/stations';
 import { mountStationPicker } from './station-picker';
 import { mountEventList } from './event-list';
 import { mountWorldMap } from './world-map';
@@ -44,6 +44,26 @@ export function mountApp(root: HTMLElement, version: string): void {
   let currentEventId: string | null = null;
   let firstFrameAt: number | null = null;
   const subscribedAt = Date.now();
+
+  // Drum overlay state: events from the latest USGS poll + the active
+  // station's coords (when known). Seeded from the curated presets;
+  // FDSN-searched stations get added as the user picks them.
+  let currentEvents: SeismicEvent[] = [];
+  const stationCoords = new Map<string, { lat: number; lon: number }>();
+  for (const s of STATION_PRESETS) stationCoords.set(s.nslc, { lat: s.lat, lon: s.lon });
+  function refreshDrumOverlays() {
+    const c = stationCoords.get(currentStation);
+    setDrumOverlays(currentEvents, c?.lat ?? null, c?.lon ?? null);
+  }
+  // The Browse modal emits this when a searched station is picked, so
+  // we can cache its coords for drum overlays.
+  window.addEventListener('tremiom:station-coords', (ev: Event) => {
+    const d = (ev as CustomEvent).detail as { nslc: string; lat: number; lon: number };
+    if (d?.nslc && Number.isFinite(d.lat) && Number.isFinite(d.lon)) {
+      stationCoords.set(d.nslc, { lat: d.lat, lon: d.lon });
+      if (d.nslc === currentStation) refreshDrumOverlays();
+    }
+  });
 
   const client = new TremiomClient({
     onStatus(s) {
@@ -155,6 +175,7 @@ export function mountApp(root: HTMLElement, version: string): void {
     if (el) el.textContent = `connected · waiting for first sample (0s)`;
     worldMap.setActiveStation(next);
     picker.setStation(next);
+    refreshDrumOverlays();
     client.subscribe(currentStation, INITIAL_PANELS);
     // Local first-frame timer for the new station.
     const subTimer = window.setInterval(() => {
@@ -176,7 +197,11 @@ export function mountApp(root: HTMLElement, version: string): void {
 
   const eventList = mountEventList(sidebarHost, {
     onPick(e) { pickEvent(e); },
-    onEvents(events) { worldMap.setEvents(events); },
+    onEvents(events) {
+      currentEvents = events;
+      worldMap.setEvents(events);
+      refreshDrumOverlays();
+    },
   });
 
   // ── Station picker ──────────────────────────────────────────────────
@@ -191,7 +216,8 @@ export function mountApp(root: HTMLElement, version: string): void {
   // Settings gear → modal with auth state + sign-out + token field.
   document.getElementById('settings-btn')?.addEventListener('click', openSettings);
 
-  // Initial subscription.
+  // Initial overlay + subscription.
+  refreshDrumOverlays();
   client.subscribe(currentStation, INITIAL_PANELS);
 }
 

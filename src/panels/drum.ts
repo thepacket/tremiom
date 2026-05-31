@@ -1,5 +1,6 @@
 import type { PanelDef } from './registry';
 import { AXIS_PAD, COLOR_LABEL, drawFrame, plotBounds } from './axes';
+import { magColor, type SeismicEvent } from '../data/events';
 
 /** Helicorder drum — the iconic 24-h seismograph view. Each row covers
  *  1 hour; columns within a row are 6-second envelope buckets (min/max).
@@ -22,6 +23,24 @@ interface DrumFrame {
 /** Keep the most recent frame per-station so the panel keeps showing the
  *  drum even when the panel timer skips an emit (e.g. all-NaN guard). */
 const lastFrames = new Map<string, DrumFrame>();
+
+/** Overlay state — set by the app whenever the events list refreshes
+ *  or the station changes. The drum renderer reads this at draw time
+ *  to mark predicted P-arrival times on the recorder. */
+interface DrumOverlays {
+  events: SeismicEvent[];
+  stationLat: number | null;
+  stationLon: number | null;
+}
+let overlays: DrumOverlays = { events: [], stationLat: null, stationLon: null };
+
+export function setDrumOverlays(
+  events: SeismicEvent[],
+  stationLat: number | null,
+  stationLon: number | null,
+): void {
+  overlays = { events, stationLat, stationLon };
+}
 
 export const drum: PanelDef = {
   id: 'drum',
@@ -142,6 +161,12 @@ function drawDrum(ctx: CanvasRenderingContext2D, w: number, h: number, f: DrumFr
     ctx.fillText(`${m}m`, x, pb.bottom + 2);
   }
 
+  // Event arrival markers (predicted P arrival from each USGS event).
+  // Skipped silently if we don't know the station's lat/lon.
+  if (overlays.stationLat != null && overlays.stationLon != null) {
+    drawArrivalMarkers(ctx, pb, f, overlays);
+  }
+
   drawFrame(ctx, w, h);
 
   // Span label (top-right): "24 h · 6 s/col"
@@ -150,6 +175,62 @@ function drawDrum(ctx: CanvasRenderingContext2D, w: number, h: number, f: DrumFr
   ctx.textBaseline = 'top';
   const hours = (rows * rowSpanS) / 3600;
   ctx.fillText(`${hours.toFixed(0)} h · ${bucketS} s/col`, pb.right - 4, pb.top + 2);
+}
+
+/** Crude single-velocity P-wave time of flight in seconds. Good enough
+ *  for plotting "approximate arrival" markers on a row that's already
+ *  3600 s wide. The Event-mode record section uses TauP for precise
+ *  arrivals. */
+const P_VELOCITY_KM_S = 8.0;
+
+function greatCircleKm(lat1: number, lon1: number, lat2: number, lon2: number): number {
+  const R = 6371;
+  const toRad = (d: number) => (d * Math.PI) / 180;
+  const p1 = toRad(lat1), p2 = toRad(lat2);
+  const dp = toRad(lat2 - lat1), dl = toRad(lon2 - lon1);
+  const a = Math.sin(dp / 2) ** 2 + Math.cos(p1) * Math.cos(p2) * Math.sin(dl / 2) ** 2;
+  return 2 * R * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+}
+
+function drawArrivalMarkers(
+  ctx: CanvasRenderingContext2D,
+  pb: { left: number; right: number; top: number; bottom: number; width: number; height: number },
+  f: DrumFrame,
+  ov: DrumOverlays,
+) {
+  const { rows, cols, bucketS, startMs } = f;
+  const rowSpanS = cols * bucketS;
+  const rowH = pb.height / rows;
+  const endMs = startMs + rows * rowSpanS * 1000;
+  const stLat = ov.stationLat!;
+  const stLon = ov.stationLon!;
+  for (const e of ov.events) {
+    if (e.mag == null) continue;
+    const distKm = greatCircleKm(stLat, stLon, e.lat, e.lon);
+    const arrivalMs = e.timeMs + (distKm / P_VELOCITY_KM_S) * 1000;
+    if (arrivalMs < startMs || arrivalMs >= endMs) continue;
+    const offsetMs = arrivalMs - startMs;
+    const row = Math.floor(offsetMs / (rowSpanS * 1000));
+    const colT = (offsetMs - row * rowSpanS * 1000) / 1000; // s within row
+    const x = pb.left + (colT / rowSpanS) * pb.width;
+    const yMid = pb.top + rowH * (row + 0.5);
+    const r = Math.max(2.5, Math.min(7, 2 + e.mag * 0.9));
+    ctx.fillStyle = magColor(e.mag);
+    ctx.globalAlpha = 0.85;
+    ctx.beginPath();
+    ctx.arc(x, yMid, r, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.globalAlpha = 1;
+    // Thin vertical tick down through the row so the marker reads as
+    // "an arrival happened at this clock time".
+    ctx.strokeStyle = magColor(e.mag);
+    ctx.globalAlpha = 0.5;
+    ctx.beginPath();
+    ctx.moveTo(x, pb.top + rowH * row + 2);
+    ctx.lineTo(x, pb.top + rowH * (row + 1) - 2);
+    ctx.stroke();
+    ctx.globalAlpha = 1;
+  }
 }
 
 function placeholder(ctx: CanvasRenderingContext2D, w: number, h: number, msg: string) {
