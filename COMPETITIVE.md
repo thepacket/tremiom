@@ -323,6 +323,10 @@ list omitted:
 | **Auto-picker (STA/LTA onset detection)** | ✅ | v0.3.15 |
 | **World map pan/zoom** | ✅ | v0.3.16 |
 | **DYFI felt-report polygons on map** | ✅ | v0.3.17 |
+| **Coda-duration magnitude (Md)** | ✅ | v0.3.18 |
+| **Persistent pick catalog (localStorage)** | ✅ | v0.3.19 |
+| **ZRT component rotation (record section)** | ✅ | v0.3.20 |
+| **ShakeMap modeled-intensity raster overlay** | ✅ | v0.3.21 |
 
 ## Deliberately NOT implemented — and why
 
@@ -343,12 +347,15 @@ Tremiom's architecture; half-building them would be dishonest "parity".
   alerts, auto-picker, manual grid-search locator, ML) but not the
   autonomous association engine that wires them into a hands-off
   pipeline.
-- **Additional magnitude scales (Mb/Ms/Mw/Md)** — ML implemented;
-  the others are incremental and lower-value for the audience.
-- **Component rotation to ZRT** — feasible; needs the record-section to
-  fetch 3-component per station (currently vertical only). A refinement,
-  not a missing capability.
+- **Teleseismic body/surface magnitudes (Mb / Ms / Mw)** — ML (v0.3.5)
+  and Md (v0.3.18) are implemented; Mb/Ms/Mw need standard-period
+  amplitude measurements + calibration that add little for this
+  audience over the two already shipped.
 
-Everything that is a genuine interactive browser-viewer feature, and is
-feasible with a single-station global-broadband data model, is built.
+Everything else that is a genuine interactive browser-viewer feature,
+and is feasible with a single-station global-broadband data model, is
+built. The only out-of-scope items are the four above (array
+processing, receiver functions, cross-correlation, full auto-association
+pipeline) plus the incremental Mb/Ms/Mw scales — each for a documented
+architectural or scope reason, not for lack of effort.
 
