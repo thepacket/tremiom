@@ -1,5 +1,6 @@
 import { resetSpectrogram } from '../panels/spectrogram';
 import { resetDrum, setDrumOverlays } from '../panels/drum';
+import { resetRsam } from '../panels/rsam';
 import { TremiomClient } from '../transport/ws';
 import { DEFAULT_STATION, STATION_PRESETS } from '../data/stations';
 import { mountStationPicker } from './station-picker';
@@ -179,6 +180,7 @@ export function mountApp(root: HTMLElement, version: string): void {
     client.unsubscribe(currentStation);
     resetSpectrogram();
     resetDrum();
+    resetRsam();
     dashboard.clear();
     currentStation = next;
     firstFrameAt = null;

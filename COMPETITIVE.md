@@ -252,4 +252,11 @@ In order of recommended build sequence; each chosen for ratio of (impact to seis
 > #2 onward (instrument response removal, PPSD, RSAM, click-drag
 > export, picker, felt-reports + beachballs, multi-station drum,
 > mobile).
+>
+> **Update (v0.2.6):** RSAM (gap-list #8 / recommendation #5) shipped —
+> 1-minute mean-abs bins over 24 h, reusing the DrumHistory store.
+> Remaining plot-type gaps: instantaneous spectrum/FFT line, 3-component
+> stacked scope, instrument-response-removed units. Non-plot gaps
+> unchanged (export, picker, felt reports, beachballs, multi-station
+> drum, mobile).
 

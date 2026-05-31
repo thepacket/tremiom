@@ -7,6 +7,7 @@ import { spectrogram } from './spectrogram';
 import { rawScope } from './raw-scope';
 import { psd } from './psd';
 import { drum } from './drum';
+import { rsam } from './rsam';
 import { staLta } from './sta-lta';
 import { particleMotion } from './particle-motion';
 import { ppsd } from './ppsd';
@@ -27,5 +28,5 @@ export interface PanelDef {
 }
 
 export const panelRegistry: Record<string, PanelDef> = Object.fromEntries(
-  [drum, helicorder, spectrogram, rawScope, psd, staLta, particleMotion, ppsd].map((p) => [p.id, p])
+  [drum, rsam, helicorder, spectrogram, rawScope, psd, staLta, particleMotion, ppsd].map((p) => [p.id, p])
 );

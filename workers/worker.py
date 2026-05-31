@@ -167,6 +167,11 @@ class DrumHistory:
             c = {
                 "mins":       np.full(DRUM_N_BUCKETS, np.nan, dtype=np.float32) if HAS_SCIPY else None,
                 "maxs":       np.full(DRUM_N_BUCKETS, np.nan, dtype=np.float32) if HAS_SCIPY else None,
+                # RSAM needs mean(|x|) per bucket — track sum(|x|) and the
+                # sample count so the mean can be reconstructed and bins
+                # can be aggregated correctly across buckets.
+                "sumabs":     np.zeros(DRUM_N_BUCKETS, dtype=np.float64) if HAS_SCIPY else None,
+                "cnt":        np.zeros(DRUM_N_BUCKETS, dtype=np.int64) if HAS_SCIPY else None,
                 "bt":         np.zeros(DRUM_N_BUCKETS, dtype=np.int64) if HAS_SCIPY else None,
                 "last_write": 0.0,
             }
@@ -190,14 +195,22 @@ class DrumHistory:
             for k, bt in enumerate(unique_bts):
                 sub = arr[inverse == k]
                 lo, hi = float(sub.min()), float(sub.max())
+                # RSAM uses mean(|x|) with the per-bucket mean removed so
+                # a DC offset doesn't inflate the amplitude. Demean here.
+                sabs = float(np.abs(sub - sub.mean()).sum())
+                n_sub = int(sub.size)
                 slot = self._slot(int(bt))
                 if c["bt"][slot] != bt:
-                    c["mins"][slot] = lo
-                    c["maxs"][slot] = hi
-                    c["bt"][slot]   = int(bt)
+                    c["mins"][slot]   = lo
+                    c["maxs"][slot]   = hi
+                    c["sumabs"][slot] = sabs
+                    c["cnt"][slot]    = n_sub
+                    c["bt"][slot]     = int(bt)
                 else:
                     if lo < c["mins"][slot]: c["mins"][slot] = lo
                     if hi > c["maxs"][slot]: c["maxs"][slot] = hi
+                    c["sumabs"][slot] += sabs
+                    c["cnt"][slot]    += n_sub
 
     def snapshot(self, nslc: str, now: float):
         """Return (start_bt, mins, maxs) covering the past 24 h in time
@@ -219,6 +232,36 @@ class DrumHistory:
             mins[present] = c["mins"][slots[present]]
             maxs[present] = c["maxs"][slots[present]]
             return int(start_bt), mins, maxs
+
+    def rsam_snapshot(self, nslc: str, now: float, bin_s: int):
+        """RSAM = mean(|x|) aggregated into `bin_s`-second bins over the
+        past 24 h. `bin_s` is rounded to a multiple of DRUM_BUCKET_S.
+        Returns (start_bt, bin_s_effective, values[]) where values are
+        per-bin mean-abs amplitude, NaN for bins with no samples."""
+        if not HAS_SCIPY:
+            return None
+        buckets_per_bin = max(1, round(bin_s / DRUM_BUCKET_S))
+        bin_s_eff = buckets_per_bin * DRUM_BUCKET_S
+        with self._lock:
+            c = self._chan.get(nslc)
+            if c is None:
+                return None
+            end_bt   = self._bucket_t(now)
+            start_bt = end_bt - (DRUM_N_BUCKETS - 1) * DRUM_BUCKET_S
+            wanted = start_bt + np.arange(DRUM_N_BUCKETS, dtype=np.int64) * DRUM_BUCKET_S
+            slots  = (wanted // DRUM_BUCKET_S) % DRUM_N_BUCKETS
+            present = c["bt"][slots] == wanted
+            sumabs = np.where(present, c["sumabs"][slots], 0.0)
+            cnt    = np.where(present, c["cnt"][slots],    0)
+            # Aggregate consecutive buckets into bins: bin mean-abs =
+            # total |x| over the bin / total samples in the bin.
+            n_bins = DRUM_N_BUCKETS // buckets_per_bin
+            usable = n_bins * buckets_per_bin
+            sa = sumabs[:usable].reshape(n_bins, buckets_per_bin).sum(axis=1)
+            ct = cnt[:usable].reshape(n_bins, buckets_per_bin).sum(axis=1)
+            with np.errstate(invalid="ignore", divide="ignore"):
+                vals = np.where(ct > 0, sa / np.maximum(ct, 1), np.nan)
+            return int(start_bt), int(bin_s_eff), vals
 
 
 # Module-level DrumHistory singleton. Panels + SeedLink callback + the
@@ -472,6 +515,32 @@ def panel_drum(nslc: str, _ring: RingBuffer) -> dict | None:
     }
 
 
+RSAM_BIN_S = 60   # 1-minute bins over 24 h → 1440 points
+
+
+def panel_rsam(nslc: str, _ring: RingBuffer) -> dict | None:
+    """RSAM (Real-time Seismic Amplitude Measurement) — mean |ground
+    motion| in fixed time bins over the past 24 h. The volcano-
+    monitoring community's primary tracker: a sustained rise flags
+    tremor / eruption onset that individual events on the drum can
+    miss. Reads the mean-abs accumulators in DrumHistory."""
+    snap = DRUM.rsam_snapshot(nslc, time.time(), RSAM_BIN_S)
+    if snap is None:
+        return None
+    start_bt, bin_s, vals = snap
+    if not np.any(np.isfinite(vals)):
+        return None
+    return {
+        "frame":   "panel",
+        "panel":   "rsam",
+        "station": nslc,
+        "t":       time.time(),
+        "startMs": int(start_bt * 1000),
+        "binS":    int(bin_s),
+        "data":    [None if not np.isfinite(v) else float(v) for v in vals],
+    }
+
+
 PARTICLE_MOTION_WIN_S = 30.0      # rolling window the hodogram covers
 PARTICLE_MOTION_POINTS = 500      # target number of (N, E) pairs sent
 
@@ -630,6 +699,7 @@ PANELS = {
     "raw-scope":   panel_raw_scope,
     "psd":         panel_psd,
     "drum":        panel_drum,
+    "rsam":        panel_rsam,
     "sta-lta":     panel_sta_lta,
     "particle-motion": panel_particle_motion,
     "ppsd":         None,  # bound below (definition uses PPSD instance)
@@ -1005,8 +1075,9 @@ def cmd_loop(sl_router) -> None:
             with _subs_lock:
                 _subscriptions[station] |= panels
             log(f"+sub {station} panels={sorted(panels)}")
-            # Drum needs 24 h of context; fetch it once per station.
-            if "drum" in panels:
+            # Drum + RSAM both want 24 h of context (they share the
+            # DrumHistory store); fetch it once per station.
+            if "drum" in panels or "rsam" in panels:
                 kick_backfill(station)
         elif op == "unsubscribe":
             with _subs_lock:

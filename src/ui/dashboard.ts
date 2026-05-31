@@ -35,14 +35,18 @@ export interface DashboardHandle {
 
 /** Sensible default placement on a 24-column grid (cellHeight = 30 px). */
 const DEFAULT_LAYOUT: GridStackWidget[] = [
-  // Top row: drum spans the full width (the iconic display).
+  // Top: drum spans the full width (the iconic display).
   { id: 'drum',            x:  0, y:  0, w: 24, h: 10 },
-  // Middle row: spectrogram + STA/LTA side by side.
-  { id: 'spectrogram',     x:  0, y: 10, w: 12, h:  9 },
-  { id: 'sta-lta',         x: 12, y: 10, w: 12, h:  9 },
-  // Bottom row: particle motion (square, narrower) + PPSD (wide).
-  { id: 'particle-motion', x:  0, y: 19, w:  8, h: 11 },
-  { id: 'ppsd',            x:  8, y: 19, w: 16, h: 11 },
+  // RSAM full-width strip directly under the drum — both are 24-h
+  // timelines, so stacking them lets the eye correlate amplitude
+  // trend against the drum's individual traces.
+  { id: 'rsam',            x:  0, y: 10, w: 24, h:  7 },
+  // Spectrogram + STA/LTA side by side.
+  { id: 'spectrogram',     x:  0, y: 17, w: 12, h:  9 },
+  { id: 'sta-lta',         x: 12, y: 17, w: 12, h:  9 },
+  // Particle motion (square, narrower) + PPSD (wide).
+  { id: 'particle-motion', x:  0, y: 26, w:  8, h: 11 },
+  { id: 'ppsd',            x:  8, y: 26, w: 16, h: 11 },
 ];
 
 export function mountDashboard(
