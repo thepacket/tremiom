@@ -33,6 +33,12 @@ export function mountRecordSection(parent: HTMLElement): RecordSectionHandle {
       <span class="title">record section</span>
       <span class="muted info"></span>
       <canvas class="rs-beachball" width="48" height="48" title="Focal mechanism"></canvas>
+      <span class="rs-pick hidden">
+        <button class="rs-btn pick-btn" data-pick="P" title="Click a trace to place a P pick">Pick P</button>
+        <button class="rs-btn pick-btn" data-pick="S" title="Click a trace to place an S pick">Pick S</button>
+        <button class="rs-btn" data-pick="clear" title="Clear picks for this event">Clear</button>
+        <button class="rs-btn" data-pick="quakeml" title="Download picks as QuakeML">⤓ QuakeML</button>
+      </span>
       <span class="rs-export hidden">
         <button class="rs-btn" data-fmt="mseed" title="Download full-resolution MiniSEED">⤓ MiniSEED</button>
         <button class="rs-btn" data-fmt="csv" title="Download decimated CSV">⤓ CSV</button>
@@ -106,9 +112,112 @@ export function mountRecordSection(parent: HTMLElement): RecordSectionHandle {
   exportBar.querySelectorAll('.rs-btn').forEach((b) =>
     b.addEventListener('click', () => exportData((b as HTMLElement).dataset.fmt!)));
 
+  const pickBar = root.querySelector('.rs-pick') as HTMLElement;
+  function updatePickButtons() {
+    pickBar.querySelectorAll('.pick-btn').forEach((b) => {
+      b.classList.toggle('active', (b as HTMLElement).dataset.pick === pickMode);
+    });
+  }
+  pickBar.querySelectorAll('.rs-btn').forEach((b) =>
+    b.addEventListener('click', () => {
+      const action = (b as HTMLElement).dataset.pick!;
+      if (action === 'P' || action === 'S') {
+        pickMode = pickMode === action ? 'off' : action;
+        root.classList.toggle('picking', pickMode !== 'off');
+        updatePickButtons();
+      } else if (action === 'clear') {
+        picks.clear();
+        draw();
+      } else if (action === 'quakeml') {
+        exportQuakeML();
+      }
+    }));
+
+  // Click-to-pick: map pixel → (station row, time) via the captured layout.
+  canvas.addEventListener('click', (ev) => {
+    if (pickMode === 'off' || !lastLayout || !currentEvent) return;
+    const L = lastLayout;
+    const rect = canvas.getBoundingClientRect();
+    const cx = ev.clientX - rect.left;
+    const cy = ev.clientY - rect.top;
+    if (cx < L.left || cx > L.left + L.innerW) return;
+    if (cy < L.top || cy > L.top + L.innerH) return;
+    const row = Math.floor((cy - L.top) / L.rowH);
+    const st = L.stations[row];
+    if (!st) return;
+    const t = L.t0sec + ((cx - L.left) / L.innerW) * (L.t1sec - L.t0sec);
+    const cur = picks.get(st.nslc) || {};
+    cur[pickMode] = t;
+    picks.set(st.nslc, cur);
+    draw();
+  });
+
+  function exportQuakeML() {
+    if (!currentEvent || !picks.size) {
+      setStatus('no picks to export', 'error'); return;
+    }
+    const e = currentEvent;
+    const originIso = new Date(e.timeMs).toISOString();
+    const pickEls: string[] = [];
+    let n = 0;
+    for (const [nslc, ps] of picks) {
+      const [net, sta, loc, cha] = nslc.split('.');
+      for (const phase of ['P', 'S'] as const) {
+        const tp = ps[phase];
+        if (tp == null) continue;
+        const tIso = new Date(e.timeMs + tp * 1000).toISOString();
+        pickEls.push(
+          `    <pick publicID="smi:tremiom/pick/${e.id}/${++n}">\n` +
+          `      <time><value>${tIso}</value></time>\n` +
+          `      <waveformID networkCode="${net}" stationCode="${sta}" ` +
+          `locationCode="${loc}" channelCode="${cha}"/>\n` +
+          `      <phaseHint>${phase}</phaseHint>\n` +
+          `      <evaluationMode>manual</evaluationMode>\n` +
+          `    </pick>`);
+      }
+    }
+    const qml =
+      `<?xml version="1.0" encoding="UTF-8"?>\n` +
+      `<q:quakeml xmlns="http://quakeml.org/xmlns/bed/1.2" ` +
+      `xmlns:q="http://quakeml.org/xmlns/quakeml/1.2">\n` +
+      `  <eventParameters publicID="smi:tremiom/catalog/${e.id}">\n` +
+      `    <event publicID="smi:tremiom/event/${e.id}">\n` +
+      `      <description><text>${escapeXml(e.place)}</text></description>\n` +
+      `      <origin publicID="smi:tremiom/origin/${e.id}">\n` +
+      `        <time><value>${originIso}</value></time>\n` +
+      `        <latitude><value>${e.lat}</value></latitude>\n` +
+      `        <longitude><value>${e.lon}</value></longitude>\n` +
+      `        <depth><value>${e.depthKm * 1000}</value></depth>\n` +
+      `      </origin>\n` +
+      (e.mag != null ? `      <magnitude publicID="smi:tremiom/mag/${e.id}">` +
+        `<mag><value>${e.mag}</value></mag></magnitude>\n` : '') +
+      `    </event>\n` +
+      pickEls.join('\n') + '\n' +
+      `  </eventParameters>\n</q:quakeml>\n`;
+    triggerDownload(new Blob([qml], { type: 'application/xml' }),
+                    `tremiom_${e.id}_picks.xml`);
+  }
+
+  function escapeXml(s: string): string {
+    return s.replace(/[&<>"']/g, (c) => ({
+      '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&apos;',
+    } as Record<string, string>)[c]);
+  }
+
   let waveforms: EventWaveforms | null = null;
   let currentEvent: SeismicEvent | null = null;
   let token = 0; // race-guard for overlapping fetches
+
+  // Manual phase picks: per-station P/S times in seconds from origin.
+  // Keyed by event id so picks survive switching events and back.
+  type Picks = Map<string, { P?: number; S?: number }>;
+  const picksByEvent = new Map<string, Picks>();
+  let picks: Picks = new Map();
+  let pickMode: 'off' | 'P' | 'S' = 'off';
+  let lastLayout: {
+    stations: EventWaveforms['stations']; t0sec: number; t1sec: number;
+    left: number; top: number; innerW: number; innerH: number; rowH: number;
+  } | null = null;
 
   const ro = new ResizeObserver(() => {
     const dpr = window.devicePixelRatio || 1;
@@ -246,10 +355,31 @@ export function mountRecordSection(parent: HTMLElement): RecordSectionHandle {
         ctx.fillText('S', x + 2, yTop);
       }
 
+      // Manual user picks for this station (drawn solid + bold).
+      const userPick = picks.get(s.nslc);
+      for (const phase of ['P', 'S'] as const) {
+        const tp = userPick?.[phase];
+        if (tp == null || tp < t0sec || tp > t1sec) continue;
+        const x = xForT(tp);
+        ctx.strokeStyle = phase === 'P' ? COLOR_P : COLOR_S;
+        ctx.lineWidth = 2;
+        ctx.beginPath(); ctx.moveTo(x, yTop); ctx.lineTo(x, yBot); ctx.stroke();
+        ctx.fillStyle = phase === 'P' ? COLOR_P : COLOR_S;
+        ctx.font = 'bold 10px ui-sans-serif, system-ui, sans-serif';
+        ctx.textAlign = 'right'; ctx.textBaseline = 'top';
+        ctx.fillText(phase, x - 2, yTop);
+      }
+
       // Right-side margin: a small "row scale" hint.
       ctx.textAlign = 'right';
       ctx.textBaseline = 'middle';
     });
+
+    // Capture layout so the click handler can reverse-map pixel → (row, time).
+    lastLayout = {
+      stations, t0sec, t1sec,
+      left: PADDING.left, top: PADDING.top, innerW, innerH, rowH,
+    };
 
     // Origin time line (t=0).
     if (0 >= t0sec && 0 <= t1sec) {
@@ -296,12 +426,18 @@ export function mountRecordSection(parent: HTMLElement): RecordSectionHandle {
     waveforms = null;
     clearBeachball();
     exportBar.classList.add('hidden');
+    pickBar.classList.add('hidden');
+    pickMode = 'off';
+    updatePickButtons();
     if (!e) {
       info.textContent = '';
       setStatus('no event selected');
       draw();
       return;
     }
+    // Restore (or create) this event's pick set.
+    picks = picksByEvent.get(e.id) ?? new Map();
+    picksByEvent.set(e.id, picks);
     info.textContent =
       `M${e.mag?.toFixed(1) ?? '?'} · ${e.place} · ${e.depthKm.toFixed(0)} km depth`;
     setStatus('fetching nearest stations + TauP arrivals…');
@@ -321,10 +457,10 @@ export function mountRecordSection(parent: HTMLElement): RecordSectionHandle {
         exportBar.classList.add('hidden');
       } else if (w.errors?.length) {
         setStatus(`${w.stations.length} stations OK · ${w.errors.length} unavailable`, 'info');
-        exportBar.classList.remove('hidden');
+        exportBar.classList.remove('hidden'); pickBar.classList.remove('hidden');
       } else {
         setStatus(null);
-        exportBar.classList.remove('hidden');
+        exportBar.classList.remove('hidden'); pickBar.classList.remove('hidden');
       }
       draw();
     } catch (err) {
