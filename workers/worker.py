@@ -99,6 +99,10 @@ HELICORDER_POINTS = 600
 
 PANEL_TICK_HZ = 1.0
 
+# Diagnostic: how often to emit a "live packet arrived" log per nslc.
+# 60 s is enough to confirm the stream is alive without flooding logs.
+RX_LOG_PERIOD_S = 60.0
+
 
 # ── Ring buffer ────────────────────────────────────────────────────────────
 
@@ -1210,6 +1214,7 @@ class SeedLinkConnection:
         self._desired: Set[tuple] = set()   # set of (net, sta, cha)
         self._active: Set[tuple] = set()
         self._restart_at: float | None = None
+        self._rx_last_log: Dict[str, float] = {}
         threading.Thread(target=self._supervisor,
                          name=f"sl-{host}-supervisor", daemon=True).start()
 
@@ -1227,6 +1232,17 @@ class SeedLinkConnection:
         except Exception:
             t0 = time.time() - len(data) / max(sr, 1.0)
         DRUM.write(nslc, t0, sr, data)
+        # Diagnostic: rate-limited "live packet arrived" log (once per
+        # nslc per RX_LOG_PERIOD_S). Absence of these in production
+        # means SeedLink connected but isn't delivering packets — which
+        # would explain panels-other-than-drum staying black.
+        now = time.time()
+        last = self._rx_last_log.get(nslc, 0.0)
+        if now - last >= RX_LOG_PERIOD_S:
+            self._rx_last_log[nslc] = now
+            lag = now - (t0 + len(data) / max(sr, 1.0))
+            log(f"sl[{self._host}]: rx {nslc} sr={sr:g} n={len(data)} "
+                f"lag={lag:.1f}s")
 
     def set_streams(self, nslcs: list[str]) -> None:
         """Replace the desired stream set; reconnect debounced."""
