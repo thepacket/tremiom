@@ -1,0 +1,17 @@
+node_modules
+dist
+*.tsbuildinfo
+
+# Python virtualenv from local dev; the image builds its own under /opt/venv.
+workers/.venv
+**/__pycache__
+*.pyc
+
+.git
+.github
+.claude
+.DS_Store
+*.log
+.vite
+.env
+.env.local

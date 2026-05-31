@@ -97,6 +97,33 @@ workers/
 ARCHITECTURE.md           Design doc + roadmap
 ```
 
+## Deploy (fly.io)
+
+Same shape as Radiom: a [`Dockerfile`](./Dockerfile) and a
+[`fly.toml`](./fly.toml) at the project root.
+
+```bash
+# First time only:
+fly apps create tremiom
+fly deploy
+
+# Subsequent deploys:
+fly deploy
+```
+
+The image is a multi-stage build:
+1. `node:22-alpine` builds the Vite/TS frontend → `dist/`
+2. `python:3.11-slim-bookworm` installs ObsPy + numpy + scipy into a
+   self-contained `/opt/venv`
+3. Final stage: same Python base + Node 22 from NodeSource + the venv +
+   the built frontend + `server.mjs` and `workers/`
+
+Default Fly config: `primary_region = "yyz"`, shared 1 CPU + 1024 MB,
+`auto_stop_machines = "stop"` so the machine sleeps when idle. Outbound
+TCP 18000 must be open from the Fly region for IRIS rtserve (and
+data.raspberryshake.org if you want AM streams to work) — both are
+allowed by default on Fly.
+
 ## Status
 
 **v0.0.x.** Real-data live mode and event-mode work end-to-end against

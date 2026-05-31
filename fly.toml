@@ -1,0 +1,34 @@
+# fly.toml — Tremiom on fly.io
+#
+# Deploy with:   fly deploy
+# First time:    fly apps create tremiom && fly deploy
+#
+# See https://fly.io/docs/reference/configuration/ for the schema.
+
+app = 'tremiom'
+primary_region = 'yyz'
+
+[build]
+  dockerfile = 'Dockerfile'
+
+[env]
+  PORT = '8080'
+
+[http_service]
+  internal_port = 8080
+  force_https = true
+  auto_stop_machines = 'stop'
+  auto_start_machines = true
+  min_machines_running = 0
+  processes = ['app']
+
+# obspy + numpy + scipy + matplotlib hold roughly 350 MB of RSS once a
+# SeedLink connection is warm, the per-channel ring buffers fill, and
+# TauP travel-time tables are loaded. 1 GB gives generous headroom for
+# concurrent event_fetch.py subprocesses (the one-shot Python helpers
+# spawned by /api/event/waveforms can each consume a few hundred MB
+# briefly while fetching + decimating waveforms).
+[[vm]]
+  cpu_kind = 'shared'
+  cpus = 1
+  memory_mb = 1024

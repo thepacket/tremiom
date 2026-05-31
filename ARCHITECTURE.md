@@ -212,7 +212,9 @@ panels (you already have the math from Radiom) once the skeleton is up.
 - [ ] USGS event feed → event list in sidebar
 - [ ] Click an event → event-map panel + record-section
 - [ ] README with "what is Tremiom" + screenshots
-- [ ] Dockerfile (defer fly.toml until we deploy)
+- [x] Dockerfile + fly.toml (multi-stage build: Node frontend +
+      ObsPy venv + final runtime; primary_region=yyz, 1 CPU/1024 MB,
+      auto_stop_machines=stop)
 
 ---
 
