@@ -459,6 +459,45 @@ async function handleEventLocate(req, res) {
   proc.stdin.end();
 }
 
+// ─── Parse an uploaded waveform file (MiniSEED/SAC/…) via ObsPy ───────────
+async function handleParseWaveform(req, res) {
+  if (req.method !== 'POST') { res.writeHead(405).end(); return; }
+  // Collect raw bytes (cap ~32 MB).
+  const chunks = [];
+  let total = 0;
+  let tooBig = false;
+  req.on('data', (c) => {
+    total += c.length;
+    if (total > 32 * 1024 * 1024) { tooBig = true; req.destroy(); return; }
+    chunks.push(c);
+  });
+  req.on('end', () => {
+    if (tooBig) {
+      res.writeHead(413, { 'content-type': 'application/json' });
+      res.end(JSON.stringify({ error: 'file too large (32 MB max)' })); return;
+    }
+    const buf = Buffer.concat(chunks);
+    const proc = spawn(PYTHON, ['workers/parse_waveform.py'], {
+      stdio: ['pipe', 'pipe', 'inherit'],
+    });
+    let stdout = '';
+    const timer = setTimeout(() => proc.kill('SIGTERM'), 30_000);
+    proc.stdout.on('data', (c) => { stdout += c.toString('utf8'); });
+    proc.on('exit', (code) => {
+      clearTimeout(timer);
+      if (code !== 0 || !stdout) {
+        res.writeHead(502, { 'content-type': 'application/json' });
+        res.end(JSON.stringify({ error: 'parse failed', code })); return;
+      }
+      res.writeHead(200, { 'content-type': 'application/json' });
+      res.end(stdout);
+    });
+    proc.stdin.write(buf);
+    proc.stdin.end();
+  });
+  req.on('error', () => { try { res.writeHead(400).end(); } catch {} });
+}
+
 // ─── Arbitrary-window waveform fetch (History mode) ───────────────────────
 async function handleWaveform(req, res) {
   if (req.method !== 'POST') { res.writeHead(405).end(); return; }
@@ -770,6 +809,10 @@ const httpServer = http.createServer((req, res) => {
   }
   if (req.url?.startsWith('/api/event/magnitude')) {
     handleEventMagnitude(req, res);
+    return;
+  }
+  if (req.url?.startsWith('/api/parse-waveform')) {
+    handleParseWaveform(req, res);
     return;
   }
   if (req.url?.startsWith('/api/waveform')) {

@@ -57,6 +57,9 @@ export function mountHistoryView(parent: HTMLElement, deps: HistoryDeps): Histor
           <option value="86400">24 hours</option>
         </select>
         <button class="hv-btn" data-act="now" title="Jump to most recent">Now</button>
+        <button class="hv-btn" data-act="open" title="Open a local MiniSEED / SAC file">📂 Open</button>
+        <select class="hv-trace hidden" title="Trace in file"></select>
+        <button class="hv-btn hv-exit-local hidden" data-act="exitlocal" title="Back to live FDSN">✕ file</button>
       </span>
     </header>
     <div class="hv-body">
@@ -70,13 +73,27 @@ export function mountHistoryView(parent: HTMLElement, deps: HistoryDeps): Histor
   const info   = root.querySelector('.hv-info') as HTMLElement;
   const status = root.querySelector('.hv-status') as HTMLElement;
   const durSel = root.querySelector('.hv-dur') as HTMLSelectElement;
+  const traceSel = root.querySelector('.hv-trace') as HTMLSelectElement;
+  const exitLocalBtn = root.querySelector('.hv-exit-local') as HTMLButtonElement;
   const ctx = canvas.getContext('2d')!;
+
+  // Hidden file input for "Open file".
+  const fileInput = document.createElement('input');
+  fileInput.type = 'file';
+  fileInput.accept = '.mseed,.miniseed,.seed,.sac,.gse,.gse2,.sacpz,*';
+  fileInput.style.display = 'none';
+  root.appendChild(fileInput);
 
   let startMs = Date.now() - 3600_000;
   let durS = 3600;
   let resp: WaveformResp | null = null;
   let fetchToken = 0;
   let visible = false;
+
+  // Local-file mode: when set, render a parsed trace statically and
+  // suppress FDSN fetch / pan / zoom (the file is fixed-resolution).
+  let localMode = false;
+  let localTraces: WaveformResp[] = [];
 
   const ro = new ResizeObserver(() => {
     const dpr = window.devicePixelRatio || 1;
@@ -96,8 +113,57 @@ export function mountHistoryView(parent: HTMLElement, deps: HistoryDeps): Histor
 
   let debounce: number | null = null;
   function scheduleFetch() {
+    if (localMode) return; // static file — nothing to fetch
     if (debounce) window.clearTimeout(debounce);
     debounce = window.setTimeout(doFetch, 220);
+  }
+
+  async function openFile(file: File) {
+    setStatus(`parsing ${file.name}…`);
+    try {
+      const buf = await file.arrayBuffer();
+      const r = await fetch('/api/parse-waveform', {
+        method: 'POST', headers: { 'content-type': 'application/octet-stream' },
+        body: buf,
+      });
+      const j = await r.json() as { traces?: WaveformResp[]; error?: string };
+      if (!r.ok || j.error || !j.traces?.length) {
+        setStatus(j.error ? `parse failed: ${j.error}` : `HTTP ${r.status}`, true);
+        return;
+      }
+      localTraces = j.traces;
+      localMode = true;
+      // Populate the trace selector.
+      traceSel.innerHTML = localTraces
+        .map((t, i) => `<option value="${i}">${t.nslc} · ${fmtDur(t.durS)} · ${t.sr}Hz</option>`)
+        .join('');
+      traceSel.classList.toggle('hidden', localTraces.length < 2);
+      exitLocalBtn.classList.remove('hidden');
+      showLocalTrace(0);
+    } catch (e) {
+      setStatus(`open failed: ${(e as Error).message}`, true);
+    }
+  }
+
+  function showLocalTrace(i: number) {
+    const t = localTraces[i];
+    if (!t) return;
+    resp = t;
+    startMs = t.t0Ms;
+    durS = t.durS;
+    info.textContent = `📂 ${t.nslc}  ·  ${fmtUTC(t.t0Ms)} +${fmtDur(t.durS)}  ·  ${t.sr} Hz`;
+    setStatus(null);
+    draw();
+  }
+
+  function exitLocal() {
+    localMode = false;
+    localTraces = [];
+    traceSel.classList.add('hidden');
+    exitLocalBtn.classList.add('hidden');
+    durS = parseInt(durSel.value, 10) || 3600;
+    startMs = Date.now() - durS * 1000 - 60_000;
+    scheduleFetch();
   }
 
   async function doFetch() {
@@ -210,6 +276,7 @@ export function mountHistoryView(parent: HTMLElement, deps: HistoryDeps): Histor
 
   // ── Interactions ───────────────────────────────────────────────────
   canvas.addEventListener('wheel', (e) => {
+    if (localMode) return;
     e.preventDefault();
     const pb = plotBounds(canvas.clientWidth, canvas.clientHeight);
     const frac = Math.max(0, Math.min(1, (e.offsetX - pb.left) / pb.width));
@@ -225,6 +292,7 @@ export function mountHistoryView(parent: HTMLElement, deps: HistoryDeps): Histor
 
   let panning = false, panStartX = 0, panStartMs = 0;
   canvas.addEventListener('mousedown', (e) => {
+    if (localMode) return;
     panning = true; panStartX = e.offsetX; panStartMs = startMs;
     canvas.style.cursor = 'grabbing';
   });
@@ -246,6 +314,9 @@ export function mountHistoryView(parent: HTMLElement, deps: HistoryDeps): Histor
   root.querySelectorAll('.hv-btn').forEach((b) =>
     b.addEventListener('click', () => {
       const act = (b as HTMLElement).dataset.act!;
+      if (act === 'open') { fileInput.click(); return; }
+      if (act === 'exitlocal') { exitLocal(); return; }
+      if (localMode) return; // nav buttons are no-ops on a static file
       if (act === 'prev') startMs -= durS * 1000;
       else if (act === 'next') startMs += durS * 1000;
       else if (act === 'zoomin') durS = Math.max(10, durS / 2);
@@ -254,6 +325,12 @@ export function mountHistoryView(parent: HTMLElement, deps: HistoryDeps): Histor
       syncDurSelect();
       scheduleFetch();
     }));
+  fileInput.addEventListener('change', () => {
+    const f = fileInput.files?.[0];
+    if (f) void openFile(f);
+    fileInput.value = ''; // allow re-opening the same file
+  });
+  traceSel.addEventListener('change', () => showLocalTrace(parseInt(traceSel.value, 10)));
   durSel.addEventListener('change', () => {
     const newDur = parseInt(durSel.value, 10);
     const endMs = startMs + durS * 1000;
@@ -270,12 +347,13 @@ export function mountHistoryView(parent: HTMLElement, deps: HistoryDeps): Histor
     show() {
       visible = true;
       root.classList.remove('hidden');
+      if (localMode) { draw(); return; } // keep the loaded file on view
       // Default to the most recent `durS` of the active station.
       startMs = Date.now() - durS * 1000 - 60_000;
       scheduleFetch();
     },
     hide() { visible = false; root.classList.add('hidden'); },
-    refresh() { if (visible) scheduleFetch(); },
+    refresh() { if (visible && !localMode) scheduleFetch(); },
   };
 }
 
