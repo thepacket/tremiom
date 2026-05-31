@@ -129,6 +129,7 @@ export function mountRecordSection(parent: HTMLElement): RecordSectionHandle {
         updatePickButtons();
       } else if (action === 'clear') {
         picks.clear();
+        savePicks();
         draw();
       } else if (action === 'auto') {
         void autoPick(b as HTMLButtonElement);
@@ -155,6 +156,7 @@ export function mountRecordSection(parent: HTMLElement): RecordSectionHandle {
     const cur = picks.get(st.nslc) || {};
     cur[pickMode] = t;
     picks.set(st.nslc, cur);
+    savePicks();
     draw();
   });
 
@@ -226,6 +228,7 @@ export function mountRecordSection(parent: HTMLElement): RecordSectionHandle {
         picks.set(pk.nslc, cur);
         n++;
       }
+      savePicks();
       setStatus(n ? `auto-picked P on ${n} stations — adjust as needed` : 'no arrivals detected',
                 n === 0 ? 'error' : 'info');
       draw();
@@ -294,10 +297,39 @@ export function mountRecordSection(parent: HTMLElement): RecordSectionHandle {
 
   // Manual phase picks: per-station P/S times in seconds from origin.
   // Keyed by event id so picks survive switching events and back.
+  // Persisted to localStorage so they also survive reloads/sessions —
+  // a lightweight catalog of the analyst's own picks.
   type Picks = Map<string, { P?: number; S?: number }>;
+  const PICKS_KEY = 'tremiom-picks-v1';
   const picksByEvent = new Map<string, Picks>();
+  loadPicks();
   let picks: Picks = new Map();
   let pickMode: 'off' | 'P' | 'S' = 'off';
+
+  function loadPicks() {
+    try {
+      const raw = localStorage.getItem(PICKS_KEY);
+      if (!raw) return;
+      const obj = JSON.parse(raw) as Record<string, Record<string, { P?: number; S?: number }>>;
+      for (const [eid, perStation] of Object.entries(obj)) {
+        const m: Picks = new Map();
+        for (const [nslc, ps] of Object.entries(perStation)) m.set(nslc, ps);
+        picksByEvent.set(eid, m);
+      }
+    } catch { /* corrupt / disabled storage — ignore */ }
+  }
+  function savePicks() {
+    try {
+      const obj: Record<string, Record<string, { P?: number; S?: number }>> = {};
+      for (const [eid, m] of picksByEvent) {
+        if (!m.size) continue;
+        const per: Record<string, { P?: number; S?: number }> = {};
+        for (const [nslc, ps] of m) per[nslc] = ps;
+        obj[eid] = per;
+      }
+      localStorage.setItem(PICKS_KEY, JSON.stringify(obj));
+    } catch { /* storage full / disabled — non-fatal */ }
+  }
   let lastLayout: {
     stations: EventWaveforms['stations']; t0sec: number; t1sec: number;
     left: number; top: number; innerW: number; innerH: number; rowH: number;
