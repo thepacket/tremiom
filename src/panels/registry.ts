@@ -15,6 +15,7 @@ import { spectrum } from './spectrum';
 import { threeComp } from './three-comp';
 import { network } from './network';
 import { clipboard } from './clipboard';
+import { qc } from './qc';
 
 export type PanelCategory = 'live' | 'event';
 
@@ -32,5 +33,5 @@ export interface PanelDef {
 }
 
 export const panelRegistry: Record<string, PanelDef> = Object.fromEntries(
-  [drum, rsam, helicorder, spectrogram, spectrum, rawScope, threeComp, psd, staLta, particleMotion, ppsd, network, clipboard].map((p) => [p.id, p])
+  [drum, rsam, helicorder, spectrogram, spectrum, rawScope, threeComp, psd, staLta, particleMotion, ppsd, network, clipboard, qc].map((p) => [p.id, p])
 );

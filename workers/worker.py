@@ -113,6 +113,7 @@ class RingBuffer:
         self._lock = threading.Lock()
         self._buf: Dict[str, Deque[float]] = {}
         self._sr: Dict[str, float] = {}
+        self._last_t: Dict[str, float] = {}   # arrival wall-time of last write
 
     def write(self, nslc: str, sr: float, samples) -> None:
         with self._lock:
@@ -120,6 +121,16 @@ class RingBuffer:
                 self._buf[nslc] = deque(maxlen=int(RING_SECONDS * sr))
                 self._sr[nslc] = sr
             self._buf[nslc].extend(samples)
+            self._last_t[nslc] = time.time()
+
+    def stats(self, nslc: str):
+        """QC stats: (sample_rate, n_samples, capacity, last_arrival_t)."""
+        with self._lock:
+            sr = self._sr.get(nslc, 0.0)
+            buf = self._buf.get(nslc)
+            if not buf or sr <= 0:
+                return 0.0, 0, 0, 0.0
+            return sr, len(buf), buf.maxlen or 0, self._last_t.get(nslc, 0.0)
 
     def snapshot(self, nslc: str, seconds: float):
         """Return (sample_rate, list[float]) of the most recent `seconds`."""
@@ -573,6 +584,39 @@ def panel_rsam(nslc: str, _ring: RingBuffer) -> dict | None:
     }
 
 
+def panel_qc(nslc: str, ring: RingBuffer) -> dict | None:
+    """Station QC — operator-grade data-quality metrics: real-time data
+    latency, buffer fill, recent RMS amplitude, and a 1-minute
+    availability estimate. The "is this station healthy right now" view
+    (SeisComP scqc / PQLX territory)."""
+    sr, n, cap, last_t = ring.stats(nslc)
+    if sr <= 0 or n == 0:
+        return None
+    now = time.time()
+    latency = max(0.0, now - last_t) if last_t > 0 else None
+    # Recent RMS over the last 60 s.
+    _, recent = ring.snapshot(nslc, 60.0)
+    rms = None
+    if recent and HAS_SCIPY:
+        arr = np.asarray(recent, dtype=np.float64)
+        rms = float(np.sqrt(np.mean((arr - arr.mean()) ** 2)))
+    # Availability: fraction of the last 60 s actually present in the
+    # buffer (a crude gap proxy — a healthy stream keeps ~60·sr samples).
+    expected = int(60 * sr)
+    have = min(len(recent), expected) if recent else 0
+    avail = (have / expected) if expected else 0.0
+    return {
+        "frame": "panel", "panel": "qc",
+        "station": nslc, "t": now,
+        "sr": sr,
+        "fillPct": round(100.0 * n / cap, 1) if cap else 0.0,
+        "latencyS": round(latency, 1) if latency is not None else None,
+        "rms": rms,
+        "availPct": round(100.0 * avail, 1),
+        "bufferSecs": round(n / sr, 0),
+    }
+
+
 PARTICLE_MOTION_WIN_S = 30.0      # rolling window the hodogram covers
 PARTICLE_MOTION_POINTS = 500      # target number of (N, E) pairs sent
 
@@ -801,6 +845,7 @@ PANELS = {
     "psd":         panel_psd,
     "drum":        panel_drum,
     "rsam":        panel_rsam,
+    "qc":          panel_qc,
     "spectrum":    panel_spectrum,
     "sta-lta":     panel_sta_lta,
     "three-comp":  panel_three_comp,
