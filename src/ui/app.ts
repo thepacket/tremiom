@@ -3,6 +3,7 @@ import { resetSpectrogram } from '../panels/spectrogram';
 import { TremiomClient } from '../transport/ws';
 import { DEFAULT_STATION } from '../data/stations';
 import { mountStationPicker } from './station-picker';
+import { mountEventList } from './event-list';
 
 const INITIAL_PANELS = ['helicorder', 'spectrogram', 'raw-scope', 'psd'];
 
@@ -21,10 +22,25 @@ export function mountApp(root: HTMLElement, version: string): void {
   `;
   root.appendChild(topbar);
 
-  // ── Grid ────────────────────────────────────────────────────────────
+  // ── Body (sidebar + grid) ───────────────────────────────────────────
+  const body = document.createElement('div');
+  body.className = 'body';
+  root.appendChild(body);
+
+  // Sidebar (event list) mounts here.
+  const sidebarHost = document.createElement('div');
+  sidebarHost.className = 'sidebar-host';
+  body.appendChild(sidebarHost);
+  mountEventList(sidebarHost, (event) => {
+    // v0.0.5: clicking an event just logs it. v0.1 will trigger an
+    // event-panels workflow (record section, travel-time, beachball)
+    // against the N nearest stations.
+    console.log('[event picked]', event);
+  });
+
   const grid = document.createElement('div');
   grid.className = 'grid';
-  root.appendChild(grid);
+  body.appendChild(grid);
 
   const renderers = new Map<string, ReturnType<typeof mountPanel>>();
   for (const id of INITIAL_PANELS) {

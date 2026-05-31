@@ -51,9 +51,79 @@ function serveStatic(req, res) {
   }
 }
 
+// ─── USGS event feed proxy + cache ────────────────────────────────────────
+// USGS publishes static GeoJSON summaries that update at most once per
+// minute. We cache each feed in memory for 60 s so a sidebar full of
+// clients hits USGS only once per minute total.
+const USGS_FEEDS = new Set([
+  'significant_hour', '4.5_hour', '2.5_hour', '1.0_hour', 'all_hour',
+  'significant_day', '4.5_day', '2.5_day', '1.0_day', 'all_day',
+  'significant_week', '4.5_week', '2.5_week', '1.0_week', 'all_week',
+  'significant_month', '4.5_month', '2.5_month', 'all_month',
+]);
+const usgsCache = new Map(); // feed -> { ts: number, body: string }
+const USGS_TTL_MS = 60_000;
+
+async function handleUsgs(req, res) {
+  const url = new URL(req.url, 'http://x');
+  const feed = url.searchParams.get('feed') || 'M2.5_day';
+  if (!USGS_FEEDS.has(feed)) {
+    res.writeHead(400, { 'content-type': 'application/json' });
+    res.end(JSON.stringify({ error: 'unknown feed', feed }));
+    return;
+  }
+  const now = Date.now();
+  const cached = usgsCache.get(feed);
+  if (cached && (now - cached.ts) < USGS_TTL_MS) {
+    res.writeHead(200, {
+      'content-type': 'application/json',
+      'cache-control': 'public, max-age=30',
+      'x-cache': 'HIT',
+    });
+    res.end(cached.body);
+    return;
+  }
+  try {
+    const upstream = await fetch(
+      `https://earthquake.usgs.gov/earthquakes/feed/v1.0/summary/${feed}.geojson`,
+      { headers: { 'user-agent': 'tremiom (https://github.com/andrepaquette/tremiom)' } }
+    );
+    const body = await upstream.text();
+    // USGS sometimes returns "200 OK + text/plain + body '404 File Not
+    // Found'" for non-existent feeds. Reject anything that isn't a JSON
+    // response so we never cache that.
+    const ct = upstream.headers.get('content-type') || '';
+    if (!upstream.ok || !ct.includes('json')) {
+      res.writeHead(upstream.ok ? 502 : upstream.status, {
+        'content-type': 'application/json',
+      });
+      res.end(JSON.stringify({
+        error: 'upstream not json',
+        status: upstream.status,
+        contentType: ct,
+        bodySnippet: body.slice(0, 80),
+      }));
+      return;
+    }
+    usgsCache.set(feed, { ts: now, body });
+    res.writeHead(200, {
+      'content-type': 'application/json',
+      'cache-control': 'public, max-age=30',
+      'x-cache': 'MISS',
+    });
+    res.end(body);
+  } catch (e) {
+    res.writeHead(502, { 'content-type': 'application/json' });
+    res.end(JSON.stringify({ error: 'fetch failed', detail: String(e?.message || e) }));
+  }
+}
+
 const httpServer = http.createServer((req, res) => {
+  if (req.url?.startsWith('/api/events')) {
+    handleUsgs(req, res);
+    return;
+  }
   if (req.url?.startsWith('/api/')) {
-    // TODO: USGS / EMSC proxy + cache.
     res.writeHead(501, { 'content-type': 'application/json' });
     res.end(JSON.stringify({ error: 'not implemented' }));
     return;
