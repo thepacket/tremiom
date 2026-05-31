@@ -230,30 +230,113 @@ _subscriptions: Dict[str, Set[str]] = defaultdict(set)  # station -> set of pane
 
 
 # ── SeedLink ingestion (real mode) ─────────────────────────────────────────
+#
+# ObsPy's easyseedlink doesn't support dynamic stream changes after
+# .run() is called — the SeedLink protocol itself negotiates streams
+# during handshake and then goes into stream mode. To handle runtime
+# subscribe/unsubscribe we tear down the connection and reconnect with
+# the new stream set every time the subscription set changes.
+#
+# A small (~1 s) debounce coalesces bursts of subscribe calls so a user
+# adding multiple stations in quick succession doesn't trigger N restarts.
 
-def start_seedlink(ring: RingBuffer):
-    """Connect to IRIS SeedLink and stream into the ring buffer.
+class SeedLinkManager:
+    """Owns the (single) SeedLink connection, restarts on stream-set changes."""
 
-    Returns the easyseedlink client object (or None if ObsPy isn't installed).
-    """
-    if not HAS_OBSPY:
-        log("ObsPy not available — running in SYNTHETIC mode "
-            "(`npm run workers:install` to enable real data)")
-        return None
+    DEBOUNCE_S = 0.8
 
-    def on_data(trace):  # obspy Trace
+    def __init__(self, ring: RingBuffer) -> None:
+        self._ring = ring
+        self._lock = threading.Lock()
+        self._client = None
+        self._thread = None
+        self._desired: Set[tuple] = set()   # set of (net, sta, cha)
+        self._active: Set[tuple] = set()
+        self._restart_at: float | None = None
+        threading.Thread(target=self._supervisor, name="sl-supervisor",
+                         daemon=True).start()
+
+    def _on_data(self, trace) -> None:
         nslc = (f"{trace.stats.network}.{trace.stats.station}."
                 f"{trace.stats.location}.{trace.stats.channel}")
-        ring.write(nslc, float(trace.stats.sampling_rate),
-                   trace.data.tolist())
+        self._ring.write(nslc, float(trace.stats.sampling_rate),
+                         trace.data.tolist())
 
-    client = create_client(
-        f"{SEEDLINK_HOST}:{SEEDLINK_PORT}",
-        on_data=on_data,
-    )
-    log(f"connecting to seedlink {SEEDLINK_HOST}:{SEEDLINK_PORT}")
-    threading.Thread(target=client.run, name="seedlink", daemon=True).start()
-    return client
+    def set_streams(self, nslcs: list[str]) -> None:
+        """Replace the desired stream set; reconnect debounced."""
+        streams: Set[tuple] = set()
+        for s in nslcs:
+            try:
+                net, sta, _loc, cha = s.split(".")
+            except ValueError:
+                log(f"sl: bad nslc {s!r}")
+                continue
+            streams.add((net, sta, cha))
+        with self._lock:
+            self._desired = streams
+            self._restart_at = time.time() + self.DEBOUNCE_S
+
+    def _supervisor(self) -> None:
+        while True:
+            time.sleep(0.2)
+            with self._lock:
+                if self._restart_at is None:
+                    continue
+                if time.time() < self._restart_at:
+                    continue
+                if self._desired == self._active and self._thread \
+                        and self._thread.is_alive():
+                    self._restart_at = None
+                    continue
+                desired = set(self._desired)
+                self._restart_at = None
+            self._reconnect(desired)
+
+    def _reconnect(self, desired: Set[tuple]) -> None:
+        # Tear down any existing client.
+        if self._client is not None:
+            try:
+                self._client.close()
+            except Exception:
+                pass
+            self._client = None
+            if self._thread is not None:
+                self._thread.join(timeout=3.0)
+            self._thread = None
+            self._active = set()
+
+        if not desired:
+            log("sl: no streams desired — staying disconnected")
+            return
+
+        try:
+            client = create_client(
+                f"{SEEDLINK_HOST}:{SEEDLINK_PORT}",
+                on_data=self._on_data,
+            )
+            for net, sta, cha in desired:
+                client.select_stream(net, sta, cha)
+        except Exception as e:
+            log(f"sl: create_client failed: {e!r}")
+            # Try again later.
+            with self._lock:
+                self._restart_at = time.time() + 5.0
+            return
+
+        log(f"sl: connecting streams={sorted(desired)}")
+
+        def run() -> None:
+            try:
+                client.run()
+            except Exception as e:
+                log(f"sl: client.run() exited: {e!r}")
+            log("sl: client thread exited")
+
+        self._client = client
+        self._active = set(desired)
+        self._thread = threading.Thread(target=run, name="seedlink",
+                                        daemon=True)
+        self._thread.start()
 
 
 # ── Synthetic ingestion (fallback when ObsPy missing) ──────────────────────
@@ -293,7 +376,7 @@ def start_synthetic(ring: RingBuffer):
 
 # ── stdin command loop ────────────────────────────────────────────────────
 
-def cmd_loop(client) -> None:
+def cmd_loop(sl_manager) -> None:
     for raw in sys.stdin:
         raw = raw.strip()
         if not raw:
@@ -309,16 +392,17 @@ def cmd_loop(client) -> None:
             with _subs_lock:
                 _subscriptions[station] |= panels
             log(f"+sub {station} panels={sorted(panels)}")
-            if client is not None:
-                try:
-                    net, sta, _loc, cha = station.split(".")
-                    client.select_stream(net, sta, cha)
-                except ValueError:
-                    log(f"bad station id {station!r}")
         elif op == "unsubscribe":
             with _subs_lock:
                 _subscriptions.pop(station, None)
             log(f"-sub {station}")
+        else:
+            continue
+        # Recompute the SeedLink stream set from current subscriptions.
+        if sl_manager is not None:
+            with _subs_lock:
+                stations = list(_subscriptions.keys())
+            sl_manager.set_streams(stations)
 
 
 # ── Panel timer thread ────────────────────────────────────────────────────
@@ -361,15 +445,15 @@ def main() -> None:
         if not HAS_SCIPY:
             log("warning: scipy missing — spectrogram & PSD will be skipped")
         start_synthetic(ring)
-        seedlink_client = None
+        sl_manager = None
     else:
-        seedlink_client = start_seedlink(ring)
+        sl_manager = SeedLinkManager(ring)
 
     threading.Thread(target=panel_loop, args=(ring,),
                      name="panels", daemon=True).start()
 
     # cmd_loop blocks the main thread on stdin.
-    cmd_loop(seedlink_client)
+    cmd_loop(sl_manager)
 
 
 if __name__ == "__main__":

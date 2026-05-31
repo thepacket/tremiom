@@ -186,9 +186,13 @@ panels (you already have the math from Radiom) once the skeleton is up.
 - [x] Unified worker connecting to IRIS (`rtserve.iris.washington.edu:18000`)
 - [x] Node multiplexer with one WS endpoint and station subscriptions
 - [x] Panel registry + 4 live panels: helicorder, spectrogram, raw scope, PSD
-- [ ] Real-network smoke test: confirm IRIS samples reach the browser
+- [x] Real-network smoke test: confirmed IRIS samples reach the browser
+      (~10–20 s first-frame latency for BHZ on rtserve.iris.washington.edu)
 - [x] Station picker UI — curated GSN presets + free-form NSLC input
 - [ ] FDSN station service search (network/region/free-text → live results)
+- [ ] Lower switch-latency on station change (SeedLink reconnect can take
+      >30 s after `close()`; investigate keeping the connection open and
+      sending a SeedLink `INFO`/restart command instead)
 - [ ] USGS event feed → event list in sidebar
 - [ ] Click an event → event-map panel + record-section
 - [ ] README with "what is Tremiom" + screenshots
