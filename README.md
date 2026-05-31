@@ -29,14 +29,19 @@ established tools.
 
 ## Authorship
 
-**[Claude Code](https://www.anthropic.com/claude-code) is the sole coder
-of Tremiom.** Every line of TypeScript, Python, the Dockerfile, the
-`fly.toml`, and the docs you're reading was written by Anthropic's CLI
-coding agent. The human maintainer set the direction, made design and
-scope decisions, evaluated each iteration on a real fly.io deployment,
-and decided when to ship — but didn't write the code by hand. Bugs and
-design choices are the agent's; the call to keep them or fix them is
-the maintainer's.
+Tremiom is a two-name project:
+
+- **[Claude Code](https://www.anthropic.com/claude-code)** — Anthropic's
+  CLI coding agent, sole coder. Every line of TypeScript, Python, the
+  Dockerfile, the `fly.toml`, and the docs you're reading was written by
+  the agent.
+- **[Andre Paquette](https://github.com/andrepaquette)** — human
+  maintainer. Set the direction, made design and scope decisions,
+  evaluated each iteration on a real fly.io deployment, and decided when
+  to ship — but didn't write the code by hand.
+
+Bugs and design choices are the agent's; the call to keep them or fix
+them is the maintainer's.
 
 ## Features
 
