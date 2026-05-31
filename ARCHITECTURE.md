@@ -43,30 +43,26 @@ many small panels in a registry.
 ## Server architecture
 
 ```
-                                  ┌──────────────────────────────────┐
-   SeedLink (rtserve.iris…)  ───► │ Python worker: SeedLinkIngestor  │
-   SeedLink (Raspberry Shake) ──► │   - obspy.clients.seedlink       │
-                                  │   - per-channel ring buffer (60s)│
-                                  │   - emits frames @ ~1 Hz         │
+   SeedLink (rtserve.iris…)  ───► ┌──────────────────────────────────┐
+   SeedLink (Raspberry Shake) ──► │ Python worker (workers/worker.py)│
+                                  │   - SeedLink client (ObsPy)      │
+                                  │   - per-channel ring buffer      │
+                                  │   - panel computers (scipy DSP): │
+                                  │     spectrogram / PSD / helicord.│
+                                  │     / raw-scope / …              │
+                                  │   - emits NDJSON frames @ ~1 Hz  │
+                                  │   - falls back to synthetic mode │
+                                  │     if obspy/scipy missing       │
                                   └──────────┬───────────────────────┘
-                                             │ NDJSON + binary frames over stdio
-                                             ▼
-                                  ┌──────────────────────────────────┐
-                                  │ Python worker: PanelComputer     │
-                                  │   - takes ring-buffer windows    │
-                                  │   - computes panel-specific data │
-                                  │     (spectrogram, PPSD, hodogram,│
-                                  │      STA/LTA, etc.)              │
-                                  │   - one worker per panel-kind    │
-                                  └──────────┬───────────────────────┘
-                                             │
+                                             │ NDJSON over stdio
                                              ▼
    USGS / EMSC event feeds ───►    ┌──────────────────────────────────┐
                                    │ Node multiplexer (server.mjs)    │
                                    │   - WebSocket server             │
                                    │   - subscription registry        │
                                    │     (clientId → {station, panel})│
-                                   │   - fan-out + backpressure       │
+                                   │   - fan-out to subscribers       │
+                                   │   - worker auto-restart          │
                                    │   - REST proxy to FDSN/USGS      │
                                    └──────────┬───────────────────────┘
                                               │ WebSocket
@@ -79,15 +75,22 @@ many small panels in a registry.
                                    └──────────────────────────────────┘
 ```
 
-### Why the Python workers are split (ingestor vs computer)
+### Why one unified worker (not separate ingestor + computer)
 
-- The **ingestor** is I/O-bound and stateful (one persistent SeedLink TCP
-  connection per upstream server). It must never block on computation.
-- The **computer** is CPU-bound and stateless per request (window in,
-  panel-data out). We can run N of them, or use multiprocessing inside
-  one, depending on load.
-- Same separation Radiom used between csdr stages: ingest stays hot,
-  compute can scale.
+The earlier sketch split SeedLink ingestion and panel computation into
+separate Python processes. **We collapsed that into one process** because:
+
+- The ring buffer lives in *one* process's memory; an IPC layer to share
+  it (Redis, shared memory) would be pure overhead at our scale.
+- Multiple processes would each open their own SeedLink TCP connection
+  to IRIS — wasteful, and bad upstream citizenship.
+- One process keeps the SeedLink callback (background thread inside
+  ObsPy) and the panel timer thread coordinated via a single lock on the
+  ring buffer.
+
+If panel computation ever becomes CPU-bound enough to matter, we'll move
+it to threads or a multiprocessing pool *inside* the worker, not split
+the process boundary.
 
 ### What the worker hands back to the multiplexer
 
@@ -178,11 +181,12 @@ panels (you already have the math from Radiom) once the skeleton is up.
 
 ## v0.1 milestone checklist
 
-- [ ] Repo scaffold (package.json, Vite, TS, server.mjs) mirroring Radiom
-- [ ] Python venv + ObsPy + pyzmq (or plain stdio framing)
-- [ ] SeedLinkIngestor worker connecting to IRIS (`rtserve.iris.washington.edu:18000`)
-- [ ] Node multiplexer with one WS endpoint and station subscriptions
-- [ ] Panel registry + 2 panels working end-to-end: helicorder + spectrogram
+- [x] Repo scaffold (package.json, Vite, TS, server.mjs) mirroring Radiom
+- [x] Python venv + ObsPy + scipy (plain stdio framing — no pyzmq needed)
+- [x] Unified worker connecting to IRIS (`rtserve.iris.washington.edu:18000`)
+- [x] Node multiplexer with one WS endpoint and station subscriptions
+- [x] Panel registry + 4 live panels: helicorder, spectrogram, raw scope, PSD
+- [ ] Real-network smoke test: confirm IRIS samples reach the browser
 - [ ] Station picker UI (browse FDSN station metadata)
 - [ ] USGS event feed → event list in sidebar
 - [ ] Click an event → event-map panel + record-section

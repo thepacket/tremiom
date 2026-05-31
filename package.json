@@ -1,7 +1,7 @@
 {
   "name": "tremiom",
   "private": true,
-  "version": "0.0.1",
+  "version": "0.0.2",
   "license": "GPL-3.0-or-later",
   "type": "module",
   "scripts": {
@@ -11,8 +11,8 @@
     "preview": "vite preview",
     "start": "node server.mjs",
     "workers:install": "python3 -m venv workers/.venv && workers/.venv/bin/pip install -r workers/requirements.txt",
-    "workers:ingestor": "workers/.venv/bin/python workers/ingestor.py",
-    "workers:panels": "workers/.venv/bin/python workers/panels.py"
+    "worker": "workers/.venv/bin/python workers/worker.py",
+    "worker:synthetic": "workers/.venv/bin/python workers/worker.py --synthetic"
   },
   "dependencies": {
     "ws": "^8.20.0"

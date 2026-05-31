@@ -9,10 +9,10 @@ See [`ARCHITECTURE.md`](./ARCHITECTURE.md) for the design.
 
 ## Status
 
-**v0.0.1 scaffold.** Frontend boots, multiplexer accepts WebSocket
-subscriptions, panel workers emit *synthetic* frames so the UI can be
-developed independently. Real SeedLink + ObsPy DSP is the next step
-(`workers/ingestor.py` is stubbed for it).
+**v0.0.2.** Unified Python worker now does real SeedLink ingestion + real
+scipy-based panel computation (spectrogram, PSD, helicorder, raw scope).
+Falls back to synthetic ingestion when ObsPy/scipy aren't installed so
+the frontend stays usable during development.
 
 ## Quick start
 
@@ -49,9 +49,8 @@ src/                    Frontend (Vite + TS, plain modules — no framework)
     psd.ts
 server.mjs              Node multiplexer (WS server + Python worker spawner)
 workers/
-  ingestor.py           SeedLink client → ring buffer (stubbed)
-  panels.py             Panel computer (currently emits synthetic frames)
-  requirements.txt      Python deps
+  worker.py             Unified SeedLink ingestor + panel computer
+  requirements.txt      Python deps (obspy, numpy, scipy)
 public/icon.svg         App icon
 ARCHITECTURE.md         Design doc
 ```

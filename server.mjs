@@ -61,13 +61,17 @@ const httpServer = http.createServer((req, res) => {
   serveStatic(req, res);
 });
 
-// ─── Python worker pool ────────────────────────────────────────────────────
-// One ingestor (SeedLink) shared by everyone. Panel-computer workers per
-// panel kind, spawned lazily on first subscription. Each speaks NDJSON
-// over stdout; the multiplexer dispatches by frame's `panel` field.
+// ─── Python worker ─────────────────────────────────────────────────────────
+// ONE worker process owns the SeedLink connection, the ring buffer, and all
+// panel computations. Spawning a process per panel-kind would mean N
+// parallel SeedLink connections to IRIS — bad citizen. The worker speaks
+// NDJSON: stdin = subscribe/unsubscribe, stdout = panel frames.
 
 const subscribers = new Map(); // ws -> { stations: Set, panels: Set }
-const panelWorkers = new Map(); // panelId -> child process
+let worker = null;
+const WORKER_ARGS = process.env.TREMIOM_SYNTHETIC === '1'
+  ? ['workers/worker.py', '--synthetic']
+  : ['workers/worker.py'];
 
 function dispatchPanelFrame(line) {
   let msg;
@@ -81,11 +85,8 @@ function dispatchPanelFrame(line) {
   }
 }
 
-function spawnPanelWorker(panelId) {
-  if (panelWorkers.has(panelId)) return panelWorkers.get(panelId);
-  const proc = spawn(PYTHON, ['workers/panels.py', '--panel', panelId], {
-    stdio: ['pipe', 'pipe', 'inherit'],
-  });
+function spawnWorker() {
+  const proc = spawn(PYTHON, WORKER_ARGS, { stdio: ['pipe', 'pipe', 'inherit'] });
   let buf = '';
   proc.stdout.on('data', (chunk) => {
     buf += chunk.toString('utf8');
@@ -97,17 +98,34 @@ function spawnPanelWorker(panelId) {
     }
   });
   proc.on('exit', (code) => {
-    console.log(`[worker:${panelId}] exited ${code}`);
-    panelWorkers.delete(panelId);
+    console.log(`[worker] exited ${code} — restarting in 2s`);
+    worker = null;
+    setTimeout(() => { worker = spawnWorker(); resubscribeAll(); }, 2000);
   });
-  panelWorkers.set(panelId, proc);
-  console.log(`[worker:${panelId}] spawned`);
+  console.log(`[worker] spawned (${WORKER_ARGS.join(' ')})`);
   return proc;
 }
 
-function tellWorker(panelId, msg) {
-  const proc = spawnPanelWorker(panelId);
-  proc.stdin.write(JSON.stringify(msg) + '\n');
+function tellWorker(msg) {
+  if (!worker) return;
+  try { worker.stdin.write(JSON.stringify(msg) + '\n'); } catch {}
+}
+
+function resubscribeAll() {
+  // After a worker restart, replay every client's subscriptions so the
+  // ring buffer + SeedLink streams come back without the browser needing
+  // to know anything.
+  const seen = new Map(); // station -> Set<panel>
+  for (const sub of subscribers.values()) {
+    for (const st of sub.stations) {
+      const merged = seen.get(st) ?? new Set();
+      for (const p of sub.panels) merged.add(p);
+      seen.set(st, merged);
+    }
+  }
+  for (const [station, panels] of seen) {
+    tellWorker({ op: 'subscribe', station, panels: [...panels] });
+  }
 }
 
 // ─── WebSocket server ──────────────────────────────────────────────────────
@@ -133,15 +151,12 @@ wss.on('connection', (ws) => {
     if (!sub) return;
     if (msg.op === 'subscribe') {
       sub.stations.add(msg.station);
-      for (const p of msg.panels || []) {
-        sub.panels.add(p);
-        tellWorker(p, { op: 'subscribe', station: msg.station });
-      }
+      for (const p of msg.panels || []) sub.panels.add(p);
+      tellWorker({ op: 'subscribe', station: msg.station,
+                   panels: msg.panels || [...sub.panels] });
     } else if (msg.op === 'unsubscribe') {
       sub.stations.delete(msg.station);
-      for (const p of sub.panels) {
-        tellWorker(p, { op: 'unsubscribe', station: msg.station });
-      }
+      tellWorker({ op: 'unsubscribe', station: msg.station });
     }
   });
 
@@ -150,6 +165,10 @@ wss.on('connection', (ws) => {
     console.log(`[ws] -client (${subscribers.size} total)`);
   });
 });
+
+// Spawn the unified Python worker before we start accepting clients so its
+// SeedLink connection has a head start.
+worker = spawnWorker();
 
 httpServer.listen(PORT, () => {
   console.log(`tremiom server on :${PORT}`);
