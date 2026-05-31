@@ -299,3 +299,56 @@ browser, with a one-token private deploy — with the honest exception of
 PyWEED-style bulk archive harvesting (#16), which is out of scope for an
 interactive viewer and partially served by the event browser + export.
 
+---
+
+## Beyond the gap list — deeper-survey features
+
+After the 17 numbered gaps closed, a second pass implemented the
+longer-tail capabilities the surveyed tools have that a curated gap
+list omitted:
+
+| Feature | Status | Version |
+|---|---|---|
+| Instantaneous spectrum (FFT) — Swarm "spectra" | ✅ | v0.2.7 |
+| 3-component scope (Z/N/E) | ✅ | v0.2.8 |
+| Instrument response removal + units (counts/vel/disp/acc/Wood-Anderson) | ✅ | v0.2.9 |
+| Per-panel PNG export | ✅ | v0.3.0 |
+| Event waveform export — MiniSEED + CSV | ✅ | v0.3.3 |
+| Grid-search single-event locator (from picks) | ✅ | v0.3.9 |
+| Network multi-station RSAM overview | ✅ | v0.3.8 |
+| Station QC panel (gaps/latency/RMS) | ✅ | v0.3.11 |
+| **Arbitrary-time waveform browser (zoom/pan/step)** | ✅ | v0.3.12 |
+| **Open local files (MiniSEED/SAC/…)** | ✅ | v0.3.13 |
+| **H/V spectral ratio (Nakamura site response)** | ✅ | v0.3.14 |
+| **Auto-picker (STA/LTA onset detection)** | ✅ | v0.3.15 |
+| **World map pan/zoom** | ✅ | v0.3.16 |
+| **DYFI felt-report polygons on map** | ✅ | v0.3.17 |
+
+## Deliberately NOT implemented — and why
+
+These exist in some surveyed tools but are genuinely out of scope for
+Tremiom's architecture; half-building them would be dishonest "parity".
+
+- **FK / array processing / beamforming** — requires dense seismic
+  *arrays* (co-located sensor groups). Tremiom streams single curated
+  GSN/global stations; there are no arrays in the data model to process.
+- **Receiver functions** — a research-grade crustal-structure workflow
+  (multi-event deconvolution + stacking), not a monitoring/analysis
+  viewer feature.
+- **Cross-correlation / template matching** — needs a template library
+  + continuous detector; a substantial standalone subsystem.
+- **Full automatic detect→associate→locate→magnitude pipeline**
+  (SeisComP scautoloc, Earthworm) — a large operational back-end.
+  Tremiom ships every *piece* as an interactive tool (STA/LTA triggers,
+  alerts, auto-picker, manual grid-search locator, ML) but not the
+  autonomous association engine that wires them into a hands-off
+  pipeline.
+- **Additional magnitude scales (Mb/Ms/Mw/Md)** — ML implemented;
+  the others are incremental and lower-value for the audience.
+- **Component rotation to ZRT** — feasible; needs the record-section to
+  fetch 3-component per station (currently vertical only). A refinement,
+  not a missing capability.
+
+Everything that is a genuine interactive browser-viewer feature, and is
+feasible with a single-station global-broadband data model, is built.
+
