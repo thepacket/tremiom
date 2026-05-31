@@ -260,8 +260,23 @@ export function mountApp(root: HTMLElement, version: string): void {
     currentEventId = e?.id ?? null;
     worldMap.setSelectedEvent(currentEventId);
     eventList.setSelectedEvent(currentEventId);
-    if (e) { showEvent(); void recordSection.setEvent(e); }
-    else   { showLive(); void recordSection.setEvent(null); }
+    worldMap.setDyfi([]); // clear previous event's felt polygons
+    if (e) {
+      showEvent();
+      void recordSection.setEvent(e);
+      // Overlay the event's DYFI felt-report polygons on the map (if any).
+      void (async () => {
+        try {
+          const r = await fetch(`/api/event/dyfi?id=${encodeURIComponent(e.id)}`);
+          if (!r.ok) return;
+          const d = await r.json() as { polygons?: Array<{ cdi: number; ring: number[][] }> };
+          if (currentEventId === e.id && d.polygons?.length) worldMap.setDyfi(d.polygons);
+        } catch { /* no felt data — fine */ }
+      })();
+    } else {
+      showLive();
+      void recordSection.setEvent(null);
+    }
   }
 
   function switchStation(next: string) {

@@ -554,6 +554,64 @@ async function handleEventAutopick(req, res) {
   proc.stdin.end();
 }
 
+// ─── DYFI felt-report polygons for an event ───────────────────────────────
+const dyfiCache = new Map();
+const DYFI_TTL_MS = 30 * 60_000;
+
+async function handleEventDyfi(req, res) {
+  const url = new URL(req.url, 'http://x');
+  const id = (url.searchParams.get('id') || '').trim();
+  if (!/^[A-Za-z0-9]{6,20}$/.test(id)) {
+    res.writeHead(400, { 'content-type': 'application/json' });
+    res.end(JSON.stringify({ error: 'bad id' })); return;
+  }
+  const now = Date.now();
+  const c = dyfiCache.get(id);
+  if (c && now - c.ts < DYFI_TTL_MS) {
+    res.writeHead(200, { 'content-type': 'application/json', 'x-cache': 'HIT' });
+    res.end(c.body); return;
+  }
+  try {
+    const det = await fetch(
+      `https://earthquake.usgs.gov/earthquakes/feed/v1.0/detail/${id}.geojson`,
+      { headers: { 'user-agent': 'tremiom (github.com/thepacket/tremiom)' } });
+    if (!det.ok) { res.writeHead(det.status).end(); return; }
+    const dj = await det.json();
+    const dyfi = (dj?.properties?.products?.dyfi || [])[0];
+    const geoUrl = dyfi?.contents?.['dyfi_geo_10km.geojson']?.url
+                || dyfi?.contents?.['dyfi_geo_1km.geojson']?.url
+                || dyfi?.contents?.['cdi_geo.geojson']?.url;
+    if (!geoUrl) {
+      const body = JSON.stringify({ id, polygons: [] });
+      dyfiCache.set(id, { ts: now, body });
+      res.writeHead(200, { 'content-type': 'application/json' });
+      res.end(body); return;
+    }
+    const gr = await fetch(geoUrl, { headers: { 'user-agent': 'tremiom' } });
+    const gj = await gr.json();
+    // Reduce to {cdi, ring:[[lon,lat],...]} — outer ring of each polygon.
+    const polygons = [];
+    for (const f of gj.features || []) {
+      const cdi = f.properties?.cdi;
+      const g = f.geometry;
+      if (cdi == null || !g) continue;
+      const rings = g.type === 'Polygon' ? [g.coordinates[0]]
+                  : g.type === 'MultiPolygon' ? g.coordinates.map((p) => p[0])
+                  : [];
+      for (const ring of rings) {
+        if (ring?.length) polygons.push({ cdi, ring });
+      }
+    }
+    const body = JSON.stringify({ id, polygons });
+    dyfiCache.set(id, { ts: now, body });
+    res.writeHead(200, { 'content-type': 'application/json' });
+    res.end(body);
+  } catch (e) {
+    res.writeHead(502, { 'content-type': 'application/json' });
+    res.end(JSON.stringify({ error: 'dyfi fetch failed', detail: String(e?.message || e) }));
+  }
+}
+
 async function handleEventExport(req, res) {
   if (req.method !== 'POST') { res.writeHead(405).end(); return; }
   let body;
@@ -824,6 +882,10 @@ const httpServer = http.createServer((req, res) => {
 
   if (req.url?.startsWith('/api/event/detail')) {
     handleEventDetail(req, res);
+    return;
+  }
+  if (req.url?.startsWith('/api/event/dyfi')) {
+    handleEventDyfi(req, res);
     return;
   }
   if (req.url?.startsWith('/api/events')) {

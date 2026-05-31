@@ -10,7 +10,7 @@
 import coastlines from '../data/coastlines.json';
 import { STATION_PRESETS } from '../data/stations';
 import {
-  type SeismicEvent, magColor,
+  type SeismicEvent, magColor, intensityColor,
 } from '../data/events';
 
 interface MapHandlers {
@@ -43,6 +43,7 @@ export interface WorldMap {
   setEvents(events: SeismicEvent[]): void;
   setActiveStation(nslc: string): void;
   setSelectedEvent(eventId: string | null): void;
+  setDyfi(polys: Array<{ cdi: number; ring: number[][] }>): void;
 }
 
 export function mountWorldMap(
@@ -68,6 +69,9 @@ export function mountWorldMap(
 
   // View transform: zoom about the canvas centre + pixel pan offset.
   let zoom = 1, panX = 0, panY = 0;
+
+  // DYFI felt-report polygons (event mode): [{cdi, ring:[[lon,lat]...]}].
+  let dyfiPolys: Array<{ cdi: number; ring: number[][] }> = [];
 
   const ro = new ResizeObserver(() => {
     dpr = window.devicePixelRatio || 1;
@@ -214,8 +218,29 @@ export function mountWorldMap(
     ctx.fillRect(0, 0, cssW, cssH);
     drawGraticule();
     drawCoastlines();
+    drawDyfi();
     drawStations();
     drawEvents();
+  }
+
+  function drawDyfi() {
+    if (!dyfiPolys.length) return;
+    for (const p of dyfiPolys) {
+      ctx.beginPath();
+      for (let i = 0; i < p.ring.length; i++) {
+        const [x, y] = project(p.ring[i][0], p.ring[i][1]);
+        if (i === 0) ctx.moveTo(x, y); else ctx.lineTo(x, y);
+      }
+      ctx.closePath();
+      ctx.fillStyle = intensityColor(p.cdi);
+      ctx.globalAlpha = 0.45;
+      ctx.fill();
+      ctx.globalAlpha = 0.9;
+      ctx.strokeStyle = intensityColor(p.cdi);
+      ctx.lineWidth = 0.5;
+      ctx.stroke();
+      ctx.globalAlpha = 1;
+    }
   }
 
   function hitAt(cx: number, cy: number): HitTarget | null {
@@ -326,5 +351,6 @@ export function mountWorldMap(
     setEvents(next) { events = next; draw(); },
     setActiveStation(nslc) { activeStation = nslc; draw(); },
     setSelectedEvent(id) { selectedEventId = id; draw(); },
+    setDyfi(polys: Array<{ cdi: number; ring: number[][] }>) { dyfiPolys = polys; draw(); },
   };
 }
