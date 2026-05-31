@@ -11,6 +11,7 @@ import { rsam } from './rsam';
 import { staLta } from './sta-lta';
 import { particleMotion } from './particle-motion';
 import { ppsd } from './ppsd';
+import { spectrum } from './spectrum';
 
 export type PanelCategory = 'live' | 'event';
 
@@ -28,5 +29,5 @@ export interface PanelDef {
 }
 
 export const panelRegistry: Record<string, PanelDef> = Object.fromEntries(
-  [drum, rsam, helicorder, spectrogram, rawScope, psd, staLta, particleMotion, ppsd].map((p) => [p.id, p])
+  [drum, rsam, helicorder, spectrogram, spectrum, rawScope, psd, staLta, particleMotion, ppsd].map((p) => [p.id, p])
 );

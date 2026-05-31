@@ -466,6 +466,38 @@ def panel_spectrogram(nslc: str, ring: RingBuffer) -> dict | None:
     }
 
 
+SPECTRUM_WIN_S = 8.0    # window for the instantaneous FFT
+
+
+def panel_spectrum(nslc: str, ring: RingBuffer) -> dict | None:
+    """Instantaneous amplitude spectrum — |FFT| of the current window,
+    updated live. Distinct from the spectrogram (rolling 2-D time-freq
+    heatmap) and PSD (Welch-averaged power): this is the single live
+    magnitude curve, the seismic equivalent of an audio spectrum
+    analyzer (Swarm's "spectra" wave-view)."""
+    if not HAS_SCIPY:
+        return None
+    sr, data = ring.snapshot(nslc, SPECTRUM_WIN_S)
+    if not data or sr <= 0 or len(data) < 64:
+        return None
+    data = apply_filter(data, sr, nslc)
+    arr = np.asarray(data, dtype=np.float64)
+    arr = arr - arr.mean()
+    # Hann window to suppress spectral leakage, then rFFT magnitude.
+    win = np.hanning(len(arr))
+    spec = np.fft.rfft(arr * win)
+    freqs = np.fft.rfftfreq(len(arr), d=1.0 / sr)
+    # Amplitude spectrum in dB (20·log10|X|), normalized by window sum.
+    mag = np.abs(spec) / (win.sum() / 2.0)
+    db = 20.0 * np.log10(np.maximum(mag, 1e-12))
+    return {
+        "frame": "panel", "panel": "spectrum",
+        "station": nslc, "t": time.time(),
+        "fMinHz": float(freqs[0]), "fMaxHz": float(freqs[-1]),
+        "data": db.astype(np.float32).tolist(),
+    }
+
+
 def panel_psd(nslc: str, ring: RingBuffer) -> dict | None:
     if not HAS_SCIPY:
         return None
@@ -700,6 +732,7 @@ PANELS = {
     "psd":         panel_psd,
     "drum":        panel_drum,
     "rsam":        panel_rsam,
+    "spectrum":    panel_spectrum,
     "sta-lta":     panel_sta_lta,
     "particle-motion": panel_particle_motion,
     "ppsd":         None,  # bound below (definition uses PPSD instance)
