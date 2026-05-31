@@ -355,6 +355,106 @@ def panel_drum(nslc: str, _ring: RingBuffer) -> dict | None:
     }
 
 
+PARTICLE_MOTION_WIN_S = 30.0      # rolling window the hodogram covers
+PARTICLE_MOTION_POINTS = 500      # target number of (N, E) pairs sent
+
+
+def three_comp_siblings(nslc: str) -> list[str]:
+    """Return *candidate* Z + horizontal NSLCs given any channel of a
+    station. Most modern IRIS GSN stations (IU.ANMO and many others) use
+    the unoriented 1/2 naming for horizontals — the sensor isn't
+    perfectly aligned and the network publishes the actual azimuth in
+    station metadata instead of relabelling the channels. So we ask for
+    both naming schemes — N/E and 1/2 — and the SeedLink server simply
+    ignores the ones that don't exist. The particle-motion panel reads
+    whichever pair actually has data."""
+    try:
+        net, sta, loc, cha = nslc.split(".")
+    except ValueError:
+        return []
+    if len(cha) != 3:
+        return []
+    base = cha[:-1]
+    return [
+        f"{net}.{sta}.{loc}.{base}Z",
+        f"{net}.{sta}.{loc}.{base}N",
+        f"{net}.{sta}.{loc}.{base}E",
+        f"{net}.{sta}.{loc}.{base}1",
+        f"{net}.{sta}.{loc}.{base}2",
+    ]
+
+
+def horizontal_pair(nslc: str, ring: RingBuffer, win_s: float):
+    """Pick whichever horizontal pair has data in the ring buffer for
+    this station: prefer N/E, fall back to 1/2. Returns
+    (chN_label, chE_label, sr, n_data, e_data) or None if neither pair
+    is populated."""
+    try:
+        net, sta, loc, cha = nslc.split(".")
+    except ValueError:
+        return None
+    if len(cha) != 3:
+        return None
+    base = cha[:-1]
+    for n_suffix, e_suffix in (("N", "E"), ("1", "2")):
+        n_nslc = f"{net}.{sta}.{loc}.{base}{n_suffix}"
+        e_nslc = f"{net}.{sta}.{loc}.{base}{e_suffix}"
+        sr_n, n_data = ring.snapshot(n_nslc, win_s)
+        sr_e, e_data = ring.snapshot(e_nslc, win_s)
+        if n_data and e_data:
+            return (n_suffix, e_suffix, min(sr_n, sr_e), n_data, e_data)
+    return None
+
+
+def panel_particle_motion(nslc: str, ring: RingBuffer) -> dict | None:
+    """Particle motion hodogram — the trajectory of horizontal ground
+    motion. Auto-picks N/E or 1/2 (whichever the station actually
+    streams), aligns the two by length, decimates, and ships parallel
+    arrays the frontend draws as a 2D path."""
+    pair = horizontal_pair(nslc, ring, PARTICLE_MOTION_WIN_S)
+    if pair is None:
+        return None
+    n_suffix, e_suffix, sr, n_data, e_data = pair
+    if sr <= 0:
+        return None
+    n = min(len(n_data), len(e_data))
+    if n < 32:
+        return None
+    n_data = n_data[-n:]
+    e_data = e_data[-n:]
+    # Reconstruct sibling NSLCs to apply the active filter (filters are
+    # keyed per-NSLC server-side; the user picks BHZ, the worker also
+    # filters BHN/BHE — or BH1/BH2 — with the same spec so the panel
+    # reflects whatever band is dialed in).
+    parts = nslc.split(".")
+    net, sta, loc, cha = parts
+    base = cha[:-1]
+    n_nslc = f"{net}.{sta}.{loc}.{base}{n_suffix}"
+    e_nslc = f"{net}.{sta}.{loc}.{base}{e_suffix}"
+    # Make sure the horizontal channels inherit the Z channel's filter.
+    with _subs_lock:
+        z_spec = _filters.get(nslc)
+        if z_spec:
+            _filters[n_nslc] = z_spec
+            _filters[e_nslc] = z_spec
+    n_data = apply_filter(n_data, sr, n_nslc)
+    e_data = apply_filter(e_data, sr, e_nslc)
+    step = max(1, n // PARTICLE_MOTION_POINTS)
+    n_out = [float(v) for v in n_data[::step][:PARTICLE_MOTION_POINTS]]
+    e_out = [float(v) for v in e_data[::step][:PARTICLE_MOTION_POINTS]]
+    return {
+        "frame":   "panel",
+        "panel":   "particle-motion",
+        "station": nslc,
+        "t":       time.time(),
+        "windowS": PARTICLE_MOTION_WIN_S,
+        "n":       n_out,
+        "e":       e_out,
+        "chN":     f"{base}{n_suffix}",
+        "chE":     f"{base}{e_suffix}",
+    }
+
+
 STA_WIN_S = 1.0   # short-term-average window
 LTA_WIN_S = 10.0  # long-term-average window
 STA_LTA_VIEW_S = 60.0   # how much history to ship to the client per frame
@@ -414,6 +514,7 @@ PANELS = {
     "psd":         panel_psd,
     "drum":        panel_drum,
     "sta-lta":     panel_sta_lta,
+    "particle-motion": panel_particle_motion,
 }
 
 
@@ -774,10 +875,18 @@ def cmd_loop(sl_router) -> None:
         else:
             continue
         # Recompute SeedLink stream sets from current subscriptions.
+        # Particle-motion panels need horizontal components too, so we
+        # expand the desired stream list to include the Z/N/E siblings.
         if sl_router is not None:
             with _subs_lock:
-                stations = list(_subscriptions.keys())
-            sl_router.set_streams(stations)
+                streams: list[str] = []
+                for s, panels in _subscriptions.items():
+                    streams.append(s)
+                    if "particle-motion" in panels:
+                        for sib in three_comp_siblings(s):
+                            if sib not in streams:
+                                streams.append(sib)
+            sl_router.set_streams(streams)
 
 
 # ── Panel timer thread ────────────────────────────────────────────────────
