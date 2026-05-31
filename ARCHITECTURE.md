@@ -195,7 +195,8 @@ panels (you already have the math from Radiom) once the skeleton is up.
       sending a SeedLink `INFO`/restart command instead)
 - [x] USGS event feed → event list in sidebar (60 s server-side cache,
       17 feeds, click-to-select hook in place)
-- [ ] Click an event → event-map panel + record-section (next milestone)
+- [x] World map showing live events + curated GSN stations, click-to-pick
+- [ ] Click an event → record-section against N nearest stations
 - [ ] USGS event feed → event list in sidebar
 - [ ] Click an event → event-map panel + record-section
 - [ ] README with "what is Tremiom" + screenshots

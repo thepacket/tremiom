@@ -22,8 +22,18 @@ html, body, #app {
 
 #app {
   display: grid;
-  grid-template-rows: 36px 1fr;
+  grid-template-rows: 36px auto 1fr;
 }
+
+.map-host {
+  height: 220px;
+  border-bottom: 1px solid var(--panel-border);
+  background: var(--bg);
+  position: relative;
+}
+
+.world-map { width: 100%; height: 100%; }
+.world-map canvas { display: block; width: 100%; height: 100%; cursor: crosshair; }
 
 .body {
   display: grid;
@@ -88,6 +98,8 @@ html, body, #app {
 }
 
 .event:hover { background: #1a1a1a; }
+.event.selected { background: #232a30; }
+.event.selected .place { color: var(--accent); }
 
 .event .mag {
   font-weight: 600;

@@ -5,13 +5,25 @@ import {
 } from '../data/events';
 import { EventFeedPoller } from '../transport/events';
 
+interface EventListHandlers {
+  onPick(event: SeismicEvent): void;
+  /** Optional: called whenever a new feed snapshot arrives, so the
+   *  caller can sync map markers without polling USGS twice. */
+  onEvents?(events: SeismicEvent[]): void;
+}
+
+export interface EventListHandle {
+  setSelectedEvent(id: string | null): void;
+  destroy(): void;
+}
+
 /** Sidebar event list. Polls USGS via /api/events on a 60 s timer and
  *  re-renders the list. The "ago" labels also re-render every 30 s so
  *  they don't go stale between polls. */
 export function mountEventList(
   parent: HTMLElement,
-  onPick: (event: SeismicEvent) => void,
-): { destroy(): void } {
+  handlers: EventListHandlers,
+): EventListHandle {
   const root = document.createElement('aside');
   root.className = 'sidebar';
   root.innerHTML = `
@@ -33,6 +45,7 @@ export function mountEventList(
   const listEl  = root.querySelector('.event-list') as HTMLUListElement;
 
   let events: SeismicEvent[] = [];
+  let selectedId: string | null = null;
 
   function render() {
     if (!events.length) {
@@ -45,8 +58,9 @@ export function mountEventList(
     listEl.innerHTML = events.map((e) => {
       const m = e.mag == null ? '—' : e.mag.toFixed(1);
       const c = magColor(e.mag);
+      const sel = e.id === selectedId ? ' selected' : '';
       return `
-        <li class="event" data-id="${e.id}">
+        <li class="event${sel}" data-id="${e.id}">
           <span class="mag" style="background:${c}">${m}</span>
           <span class="meta">
             <span class="place">${escapeHtml(e.place)}</span>
@@ -58,6 +72,11 @@ export function mountEventList(
           </span>
         </li>`;
     }).join('');
+    // Scroll the selected row into view if it isn't visible.
+    if (selectedId) {
+      const sel = listEl.querySelector('.event.selected');
+      if (sel) (sel as HTMLElement).scrollIntoView({ block: 'nearest' });
+    }
   }
 
   listEl.addEventListener('click', (ev) => {
@@ -65,7 +84,7 @@ export function mountEventList(
     if (!li) return;
     const id = li.dataset.id;
     const e = events.find((x) => x.id === id);
-    if (e) onPick(e);
+    if (e) handlers.onPick(e);
   });
 
   const poller = new EventFeedPoller({
@@ -74,6 +93,7 @@ export function mountEventList(
       // USGS GeoJSON ordering varies; sort by time desc so newest is on top.
       events = [...next].sort((a, b) => b.timeMs - a.timeMs);
       render();
+      handlers.onEvents?.(events);
     },
     onError(err) {
       status.textContent = `fetch failed: ${err.message}`;
@@ -90,6 +110,11 @@ export function mountEventList(
   const refresh = window.setInterval(render, 30_000);
 
   return {
+    setSelectedEvent(id) {
+      if (id === selectedId) return;
+      selectedId = id;
+      render();
+    },
     destroy() {
       poller.stop();
       window.clearInterval(refresh);

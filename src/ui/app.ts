@@ -4,6 +4,8 @@ import { TremiomClient } from '../transport/ws';
 import { DEFAULT_STATION } from '../data/stations';
 import { mountStationPicker } from './station-picker';
 import { mountEventList } from './event-list';
+import { mountWorldMap } from './world-map';
+import type { SeismicEvent } from '../data/events';
 
 const INITIAL_PANELS = ['helicorder', 'spectrogram', 'raw-scope', 'psd'];
 
@@ -22,22 +24,37 @@ export function mountApp(root: HTMLElement, version: string): void {
   `;
   root.appendChild(topbar);
 
+  // ── World map (full width, between topbar and body) ─────────────────
+  const mapHost = document.createElement('div');
+  mapHost.className = 'map-host';
+  root.appendChild(mapHost);
+
   // ── Body (sidebar + grid) ───────────────────────────────────────────
   const body = document.createElement('div');
   body.className = 'body';
   root.appendChild(body);
 
-  // Sidebar (event list) mounts here.
+  // ── State + transport ───────────────────────────────────────────────
+  let currentStation = DEFAULT_STATION;
+  let currentEventId: string | null = null;
+
+  const client = new TremiomClient({
+    onStatus(s) {
+      const el = document.getElementById('conn');
+      if (el) el.textContent = s;
+    },
+    onPanelFrame(panelId, frame) {
+      if ((frame as { station?: string }).station !== currentStation) return;
+      renderers.get(panelId)?.draw(frame);
+    },
+  });
+
+  // ── Sidebar (event list) ────────────────────────────────────────────
   const sidebarHost = document.createElement('div');
   sidebarHost.className = 'sidebar-host';
   body.appendChild(sidebarHost);
-  mountEventList(sidebarHost, (event) => {
-    // v0.0.5: clicking an event just logs it. v0.1 will trigger an
-    // event-panels workflow (record section, travel-time, beachball)
-    // against the N nearest stations.
-    console.log('[event picked]', event);
-  });
 
+  // ── Grid (panels) ───────────────────────────────────────────────────
   const grid = document.createElement('div');
   grid.className = 'grid';
   body.appendChild(grid);
@@ -49,33 +66,39 @@ export function mountApp(root: HTMLElement, version: string): void {
     renderers.set(id, mountPanel(grid, panel.label, panel));
   }
 
-  // ── State + transport ───────────────────────────────────────────────
-  let currentStation = DEFAULT_STATION;
+  // ── Map + sidebar wired to shared state ─────────────────────────────
+  function pickEvent(e: SeismicEvent | null) {
+    currentEventId = e?.id ?? null;
+    worldMap.setSelectedEvent(currentEventId);
+    eventList.setSelectedEvent(currentEventId);
+    if (e) console.log('[event picked]', e);
+  }
 
-  const client = new TremiomClient({
-    onStatus(s) {
-      const el = document.getElementById('conn');
-      if (el) el.textContent = s;
-    },
-    onPanelFrame(panelId, frame) {
-      // Drop frames from stations we're no longer subscribed to.
-      // (The server already filters by subscription, but a brief
-      //  window of in-flight frames may arrive after unsubscribe.)
-      if ((frame as { station?: string }).station !== currentStation) return;
-      renderers.get(panelId)?.draw(frame);
-    },
-  });
-
-  // ── Picker ──────────────────────────────────────────────────────────
-  const pickerMount = document.getElementById('picker-mount')!;
-  mountStationPicker(pickerMount, currentStation, (next) => {
+  function switchStation(next: string) {
     if (next === currentStation) return;
     client.unsubscribe(currentStation);
-    resetSpectrogram();         // clear stale columns
+    resetSpectrogram();
     for (const r of renderers.values()) r.clear();
     currentStation = next;
+    worldMap.setActiveStation(next);
+    picker.setStation(next);
     client.subscribe(currentStation, INITIAL_PANELS);
+  }
+
+  const worldMap = mountWorldMap(mapHost, {
+    onEventPicked(e) { pickEvent(e); },
+    onStationPicked(nslc) { switchStation(nslc); },
   });
+  worldMap.setActiveStation(currentStation);
+
+  const eventList = mountEventList(sidebarHost, {
+    onPick(e) { pickEvent(e); },
+    onEvents(events) { worldMap.setEvents(events); },
+  });
+
+  // ── Station picker ──────────────────────────────────────────────────
+  const pickerMount = document.getElementById('picker-mount')!;
+  const picker = mountStationPicker(pickerMount, currentStation, switchStation);
 
   // Initial subscription.
   client.subscribe(currentStation, INITIAL_PANELS);
@@ -109,7 +132,6 @@ function mountPanel(
       panel.render(ctx, canvas, frame);
     },
     clear() {
-      // Re-render with no frame -> panels fall back to "waiting…" placeholder.
       panel.render(ctx, canvas, null);
     },
   };
