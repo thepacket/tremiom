@@ -53,9 +53,12 @@ export const spectrogram: PanelDef = {
     const bins = ring[ring.length - 1].data.length;
     const rowH = h / bins;
 
-    // Fixed dB range for v0.1; auto-range in a future iteration.
-    const dbMin = -180, dbMax = -60;
-    const span = dbMax - dbMin;
+    // Auto-range from the accumulated ring. Raw IRIS counts give PSD
+    // values in the tens of dB (positive), so a fixed range can't work
+    // across instrument-response-free streams. Trim 2% from each tail
+    // to keep outliers from washing out contrast.
+    const [dbMin, dbMax] = percentileRange(ring, 0.02, 0.98);
+    const span = Math.max(1e-3, dbMax - dbMin);
 
     for (let x = 0; x < cols; x++) {
       const col = ring[x].data;
@@ -68,8 +71,34 @@ export const spectrogram: PanelDef = {
         ctx.fillRect(px, py, Math.ceil(colW), Math.ceil(rowH));
       }
     }
+
+    // dB range readout (bottom-right).
+    ctx.fillStyle = '#cfd2d4';
+    ctx.font = '10px ui-monospace, SFMono-Regular, Menlo, monospace';
+    ctx.textAlign = 'right';
+    ctx.textBaseline = 'bottom';
+    ctx.fillText(`${dbMin.toFixed(0)} … ${dbMax.toFixed(0)} dB`, w - 4, h - 2);
   },
 };
+
+/** Approximate p-percentile range over the dB values in the ring. */
+function percentileRange(ring: SpectrogramFrame[], pLo: number, pHi: number): [number, number] {
+  // Sub-sample to keep the sort affordable when the ring is full.
+  const samples: number[] = [];
+  const stride = Math.max(1, Math.floor((ring.length * (ring[0]?.data.length ?? 1)) / 4096));
+  let i = 0;
+  for (const c of ring) {
+    for (const v of c.data) {
+      if (i++ % stride === 0) samples.push(v);
+    }
+  }
+  if (!samples.length) return [-1, 1];
+  samples.sort((a, b) => a - b);
+  const lo = samples[Math.floor(samples.length * pLo)];
+  const hi = samples[Math.floor(samples.length * pHi)];
+  if (hi - lo < 1) return [lo - 0.5, hi + 0.5];
+  return [lo, hi];
+}
 
 /** Black-body-ish colormap, 0..1 -> rgb. Fast, no LUT. */
 function colormap(n: number): string {
