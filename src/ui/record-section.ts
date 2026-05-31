@@ -33,6 +33,11 @@ export function mountRecordSection(parent: HTMLElement): RecordSectionHandle {
       <span class="title">record section</span>
       <span class="muted info"></span>
       <canvas class="rs-beachball" width="48" height="48" title="Focal mechanism"></canvas>
+      <span class="rs-export hidden">
+        <button class="rs-btn" data-fmt="mseed" title="Download full-resolution MiniSEED">⤓ MiniSEED</button>
+        <button class="rs-btn" data-fmt="csv" title="Download decimated CSV">⤓ CSV</button>
+        <button class="rs-btn" data-fmt="png" title="Save plot as PNG">⤓ PNG</button>
+      </span>
     </header>
     <div class="rs-body">
       <canvas></canvas>
@@ -45,7 +50,61 @@ export function mountRecordSection(parent: HTMLElement): RecordSectionHandle {
   const info   = root.querySelector('.info')   as HTMLElement;
   const status = root.querySelector('.rs-status') as HTMLElement;
   const bbCanvas = root.querySelector('.rs-beachball') as HTMLCanvasElement;
+  const exportBar = root.querySelector('.rs-export') as HTMLElement;
   const ctx = canvas.getContext('2d')!;
+
+  function triggerDownload(blob: Blob, name: string) {
+    const a = document.createElement('a');
+    a.href = URL.createObjectURL(blob);
+    a.download = name;
+    document.body.appendChild(a); a.click(); a.remove();
+    setTimeout(() => URL.revokeObjectURL(a.href), 1000);
+  }
+
+  async function exportData(fmt: string) {
+    const e = currentEvent;
+    if (!e) return;
+    const stamp = e.id;
+    if (fmt === 'png') {
+      canvas.toBlob((b) => { if (b) triggerDownload(b, `tremiom_${stamp}_record-section.png`); }, 'image/png');
+      return;
+    }
+    if (fmt === 'csv') {
+      if (!waveforms?.stations.length) return;
+      // One CSV per station would be cleaner, but a single wide file is
+      // easier to hand off: columns = time_s_from_origin + one per station.
+      const lines: string[] = [];
+      lines.push('# tremiom event ' + e.id + ' M' + (e.mag ?? '?') + ' ' + e.place);
+      lines.push('# columns: station, distKm, pArrivalS, sArrivalS, sr, t0Ms, samples...');
+      for (const s of waveforms.stations) {
+        lines.push([s.nslc, s.distKm.toFixed(1), s.pArrivalS ?? '', s.sArrivalS ?? '',
+                    s.sr, s.t0Ms, ...s.data.map((v) => v.toFixed(3))].join(','));
+      }
+      triggerDownload(new Blob([lines.join('\n')], { type: 'text/csv' }),
+                      `tremiom_${stamp}.csv`);
+      return;
+    }
+    if (fmt === 'mseed') {
+      const btn = exportBar.querySelector('[data-fmt="mseed"]') as HTMLButtonElement;
+      const old = btn.textContent; btn.textContent = '⤓ fetching…'; btn.disabled = true;
+      try {
+        const r = await fetch('/api/event/export', {
+          method: 'POST', headers: { 'content-type': 'application/json' },
+          body: JSON.stringify({ eventId: e.id, lat: e.lat, lon: e.lon,
+                                 depthKm: e.depthKm, timeMs: e.timeMs, nStations: 6 }),
+        });
+        if (!r.ok) throw new Error(`HTTP ${r.status}`);
+        triggerDownload(await r.blob(), `tremiom_${stamp}.mseed`);
+      } catch (err) {
+        setStatus(`MiniSEED export failed: ${(err as Error).message}`, 'error');
+      } finally {
+        btn.textContent = old; btn.disabled = false;
+      }
+    }
+  }
+
+  exportBar.querySelectorAll('.rs-btn').forEach((b) =>
+    b.addEventListener('click', () => exportData((b as HTMLElement).dataset.fmt!)));
 
   let waveforms: EventWaveforms | null = null;
   let currentEvent: SeismicEvent | null = null;
@@ -236,6 +295,7 @@ export function mountRecordSection(parent: HTMLElement): RecordSectionHandle {
     currentEvent = e;
     waveforms = null;
     clearBeachball();
+    exportBar.classList.add('hidden');
     if (!e) {
       info.textContent = '';
       setStatus('no event selected');
@@ -258,10 +318,13 @@ export function mountRecordSection(parent: HTMLElement): RecordSectionHandle {
           : '';
         setStatus(`no waveforms returned (${w.errors?.length ?? 0} errors)${detail}`,
                   'error');
+        exportBar.classList.add('hidden');
       } else if (w.errors?.length) {
         setStatus(`${w.stations.length} stations OK · ${w.errors.length} unavailable`, 'info');
+        exportBar.classList.remove('hidden');
       } else {
         setStatus(null);
+        exportBar.classList.remove('hidden');
       }
       draw();
     } catch (err) {
