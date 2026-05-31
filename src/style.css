@@ -130,6 +130,74 @@ html, body, #app {
 }
 .live-btn:hover { background: #2a1d10; }
 
+.settings-btn {
+  margin-left: 8px;
+  background: transparent;
+  color: var(--muted);
+  border: 1px solid transparent;
+  border-radius: 3px;
+  font-size: 16px;
+  line-height: 1;
+  padding: 2px 6px;
+  cursor: pointer;
+}
+.settings-btn:hover { color: var(--fg); border-color: var(--panel-border); }
+
+.settings-body { padding: 14px 16px; display: grid; gap: 14px; }
+.setting-row {
+  display: grid;
+  grid-template-columns: 140px 1fr;
+  gap: 12px;
+  align-items: center;
+  font-size: 12px;
+}
+.setting-row.hidden { display: none; }
+.setting-label { color: var(--muted); }
+.setting-value { color: var(--fg); }
+.setting-value .ok    { color: #7cb342; }
+.setting-value .bad   { color: #ff8a80; }
+.setting-value .muted { color: var(--muted); }
+
+#signout-form button.danger {
+  background: transparent;
+  color: #ff8a80;
+  border: 1px solid #c0392b;
+  border-radius: 3px;
+  padding: 4px 12px;
+  font: inherit;
+  font-size: 12px;
+  cursor: pointer;
+}
+#signout-form button.danger:hover { background: #2a1414; }
+
+.relogin-form { display: flex; gap: 6px; }
+.relogin-form input[type="password"] {
+  flex: 1;
+  background: #0d0d0d;
+  color: var(--fg);
+  border: 1px solid var(--panel-border);
+  border-radius: 3px;
+  padding: 4px 8px;
+  font: inherit;
+  font-size: 12px;
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+}
+.relogin-form input[type="password"]:focus {
+  outline: none;
+  border-color: var(--accent);
+}
+.relogin-form button {
+  background: var(--accent);
+  color: #111;
+  border: none;
+  border-radius: 3px;
+  padding: 4px 12px;
+  font: inherit;
+  font-size: 12px;
+  font-weight: 600;
+  cursor: pointer;
+}
+
 .main-area {
   display: grid;
   min-height: 0;

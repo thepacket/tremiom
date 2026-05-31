@@ -107,20 +107,46 @@ function installCookieAndRedirect(req, res) {
   res.end();
 }
 
-const UNAUTHORIZED_HTML = `<!doctype html><html lang="en"><head>
-<meta charset="utf-8"><title>tremiom — 401</title>
+function renderLoginPage({ error = false } = {}) {
+  return `<!doctype html><html lang="en"><head>
+<meta charset="utf-8"><title>tremiom — sign in</title>
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <style>
-  html,body{margin:0;height:100%;background:#0d0d0d;color:#e6e6e6;
-    font-family:ui-sans-serif,system-ui,sans-serif}
-  body{display:grid;place-items:center}
-  main{text-align:center}
-  h1{color:#ff8c1a;font-size:18px;margin:0 0 8px;font-weight:600}
-  p{color:#8a8a8a;font-size:13px;margin:0;max-width:36ch}
+  :root{--bg:#0d0d0d;--fg:#e6e6e6;--muted:#8a8a8a;--accent:#ff8c1a;--panel:#141414;--border:#2a2a2a}
+  html,body{margin:0;height:100%;background:var(--bg);color:var(--fg);
+    font-family:ui-sans-serif,system-ui,-apple-system,"Segoe UI",Roboto,sans-serif}
+  body{display:grid;place-items:center;padding:24px;box-sizing:border-box}
+  main{width:100%;max-width:360px;background:var(--panel);border:1px solid var(--border);
+    border-radius:6px;padding:24px}
+  h1{color:var(--accent);font-size:18px;margin:0 0 4px;font-weight:600}
+  .sub{color:var(--muted);font-size:12px;margin:0 0 18px}
+  label{display:block;font-size:11px;color:var(--muted);margin-bottom:6px}
+  input[type="password"]{width:100%;background:#0d0d0d;color:var(--fg);
+    border:1px solid var(--border);border-radius:3px;padding:8px 10px;
+    font:inherit;font-size:13px;box-sizing:border-box;
+    font-family:ui-monospace,SFMono-Regular,Menlo,monospace}
+  input[type="password"]:focus{outline:none;border-color:var(--accent)}
+  .err{color:#ff8a80;font-size:11px;margin:8px 0 0;display:${error ? 'block' : 'none'}}
+  .row{display:flex;gap:8px;margin-top:14px;align-items:center}
+  button{background:var(--accent);color:#111;border:none;border-radius:3px;
+    padding:8px 14px;font:inherit;font-size:13px;font-weight:600;cursor:pointer}
+  button:hover{filter:brightness(1.1)}
+  .help{font-size:11px;color:var(--muted);margin-left:auto}
 </style></head><body><main>
 <h1>tremiom</h1>
-<p>This instance is private. Append <code style="color:#fff">?token=…</code> to the URL to authenticate.</p>
+<p class="sub">This instance is private. Enter the access token to continue.</p>
+<form method="POST" action="/api/auth/login" autocomplete="on">
+  <label for="t">Access token</label>
+  <input id="t" type="password" name="token" autofocus required
+    autocomplete="current-password" spellcheck="false">
+  <p class="err">Incorrect token.</p>
+  <div class="row">
+    <button type="submit">Sign in</button>
+    <span class="help">cookie expires in 1&nbsp;year</span>
+  </div>
+</form>
 </main></body></html>`;
+}
 
 function sendUnauthorized(req, res) {
   console.warn(`[auth] 401 ${req.method} ${req.url} ip=${clientIp(req)}`);
@@ -129,7 +155,75 @@ function sendUnauthorized(req, res) {
     'cache-control': 'no-store',
     'www-authenticate': 'Token realm="tremiom"',
   });
-  res.end(UNAUTHORIZED_HTML);
+  res.end(renderLoginPage({ error: false }));
+}
+
+// ─── /api/auth/* — always reachable (you need them to log in/out) ─────────
+
+function authCookieFlags(req, value, maxAge) {
+  const parts = [
+    `${AUTH_COOKIE}=${encodeURIComponent(value)}`,
+    'HttpOnly', 'SameSite=Lax', `Max-Age=${maxAge}`, 'Path=/',
+  ];
+  if (isHttps(req)) parts.push('Secure');
+  return parts.join('; ');
+}
+
+async function handleAuthLogin(req, res) {
+  if (req.method !== 'POST') { res.writeHead(405).end(); return; }
+  let body = '';
+  try {
+    for await (const chunk of req) {
+      body += chunk.toString('utf8');
+      if (body.length > 4096) { res.writeHead(413).end(); return; }
+    }
+  } catch { res.writeHead(400).end(); return; }
+  let submitted = '';
+  try {
+    const ct = req.headers['content-type'] || '';
+    if (ct.startsWith('application/json')) {
+      submitted = (JSON.parse(body || '{}').token || '').toString();
+    } else {
+      submitted = new URLSearchParams(body).get('token') || '';
+    }
+  } catch {}
+  if (!TREMIOM_TOKEN || !tokenEqual(submitted, TREMIOM_TOKEN)) {
+    console.warn(`[auth] failed login ip=${clientIp(req)}`);
+    res.writeHead(401, {
+      'content-type': 'text/html; charset=utf-8',
+      'cache-control': 'no-store',
+    });
+    res.end(renderLoginPage({ error: true }));
+    return;
+  }
+  // Success.
+  res.writeHead(302, {
+    'set-cookie': authCookieFlags(req, TREMIOM_TOKEN, AUTH_COOKIE_MAX_AGE),
+    'location': '/',
+    'cache-control': 'no-store',
+  });
+  res.end();
+}
+
+function handleAuthLogout(req, res) {
+  if (req.method !== 'POST') { res.writeHead(405).end(); return; }
+  res.writeHead(302, {
+    'set-cookie': authCookieFlags(req, '', 0),
+    'location': '/',
+    'cache-control': 'no-store',
+  });
+  res.end();
+}
+
+function handleAuthStatus(req, res) {
+  res.writeHead(200, {
+    'content-type': 'application/json',
+    'cache-control': 'no-store',
+  });
+  res.end(JSON.stringify({
+    required: !!TREMIOM_TOKEN,
+    authenticated: !TREMIOM_TOKEN || isAuthorized(req),
+  }));
 }
 
 const MIME = {
@@ -398,8 +492,16 @@ function parseFdsnStationText(text, limit) {
 }
 
 const httpServer = http.createServer((req, res) => {
-  // Whole-app token gate. Any URL with `?token=<correct>` swaps the
-  // query parameter for a cookie and redirects to the clean URL.
+  // /api/auth/* endpoints are always reachable — they're how the user
+  // logs in / out and how the client probes auth state.
+  const path = (req.url || '/').split('?')[0];
+  if (path === '/api/auth/login')  return handleAuthLogin(req, res);
+  if (path === '/api/auth/logout') return handleAuthLogout(req, res);
+  if (path === '/api/auth/status') return handleAuthStatus(req, res);
+
+  // Whole-app token gate. A URL with `?token=<correct>` swaps the query
+  // parameter for a cookie and redirects to the clean URL (the legacy
+  // "magic link" path; the login form is now the canonical entry).
   if (TREMIOM_TOKEN) {
     const urlToken = tokenFromUrl(req);
     if (urlToken && tokenEqual(urlToken, TREMIOM_TOKEN)) {

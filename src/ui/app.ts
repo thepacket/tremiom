@@ -6,6 +6,7 @@ import { mountStationPicker } from './station-picker';
 import { mountEventList } from './event-list';
 import { mountWorldMap } from './world-map';
 import { mountRecordSection } from './record-section';
+import { openSettings } from './settings';
 import type { SeismicEvent } from '../data/events';
 
 const INITIAL_PANELS = ['helicorder', 'spectrogram', 'raw-scope', 'psd'];
@@ -23,6 +24,7 @@ export function mountApp(root: HTMLElement, version: string): void {
     <span id="picker-mount"></span>
     <button class="live-btn hidden" id="live-btn" title="Return to live mode">← Live</button>
     <span class="muted" id="conn">connecting…</span>
+    <button class="settings-btn" id="settings-btn" title="Settings" aria-label="Settings">⚙</button>
   `;
   root.appendChild(topbar);
 
@@ -183,6 +185,9 @@ export function mountApp(root: HTMLElement, version: string): void {
   document.getElementById('live-btn')?.addEventListener('click', () => {
     pickEvent(null);
   });
+
+  // Settings gear → modal with auth state + sign-out + token field.
+  document.getElementById('settings-btn')?.addEventListener('click', openSettings);
 
   // Initial subscription.
   client.subscribe(currentStation, INITIAL_PANELS);

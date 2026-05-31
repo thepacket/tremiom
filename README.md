@@ -114,16 +114,25 @@ fly secrets set TREMIOM_TOKEN=7f1b…ab98
 fly deploy   # only needed if the app is currently running an older image
 ```
 
-Then visit your instance with the token appended once:
+Then visit your instance:
 
 ```
-https://tremiom.fly.dev/?token=7f1b…ab98
+https://tremiom.fly.dev/
 ```
 
-The server validates, sets a 1-year `HttpOnly; SameSite=Lax; Secure`
-cookie, and redirects to a clean URL. Subsequent visits don't need
-the parameter; the cookie does the work. To revoke access, change
-`TREMIOM_TOKEN` (and re-deploy) — every existing cookie becomes
+A sign-in page asks for the token. After submitting, the server sets a
+1-year `HttpOnly; SameSite=Lax; Secure` cookie and the app loads.
+Subsequent visits don't need to re-authenticate; the cookie does the
+work, including for the WebSocket connection.
+
+Inside the running app, the **⚙ Settings** button in the topbar shows
+the current auth state, lets you sign out, and provides a token field
+to apply a new token without leaving the page (useful after a server-
+side rotation).
+
+A legacy `?token=…` URL also works for bookmarks / scripts, but the
+sign-in form is the canonical entry. To revoke all access, change
+`TREMIOM_TOKEN` and redeploy — every existing cookie becomes
 invalid immediately.
 
 When the env var is unset, the server is open (the default for local
