@@ -270,6 +270,13 @@ html, body, #app {
   padding: 6px;
   overflow: auto;
 }
+/* When the grid has an odd number of panels, the last one spans both
+ * columns instead of leaving a hole. */
+.grid > .panel:nth-child(5):last-child,
+.grid > .panel:nth-child(7):last-child,
+.grid > .panel:nth-child(9):last-child {
+  grid-column: span 2;
+}
 
 .panel {
   background: var(--panel-bg);

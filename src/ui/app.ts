@@ -12,7 +12,7 @@ import { mountRecordSection } from './record-section';
 import { openSettings } from './settings';
 import type { SeismicEvent } from '../data/events';
 
-const INITIAL_PANELS = ['drum', 'spectrogram', 'sta-lta', 'particle-motion'];
+const INITIAL_PANELS = ['drum', 'spectrogram', 'sta-lta', 'particle-motion', 'ppsd'];
 
 export function mountApp(root: HTMLElement, version: string): void {
   root.innerHTML = '';

@@ -80,6 +80,14 @@ DRUM_COLS_PER_ROW = 600                         # ~6 s per column at 1 h/row
 DRUM_BUCKET_S = (DRUM_HOURS * 3600) // (DRUM_ROWS * DRUM_COLS_PER_ROW)  # = 6 s
 DRUM_N_BUCKETS = DRUM_ROWS * DRUM_COLS_PER_ROW  # = 14 400
 
+# PPSD (probabilistic PSD) — accumulating frequency × dB histogram.
+PPSD_SEGMENT_S  = 60.0   # length of each PSD segment added to the histogram
+PPSD_INTERVAL_S = 60.0   # how often a new segment is added
+PPSD_F_BINS  = 100       # log-spaced frequency bins (0.01 – 50 Hz)
+PPSD_DB_BINS = 60        # linear dB bins
+PPSD_DB_MIN  = -200
+PPSD_DB_MAX  = 100
+
 SPECTROGRAM_WIN_S = 8.0     # STFT window for the spectrogram column
 SPECTROGRAM_NPERSEG = 256
 PSD_WIN_S = 60.0            # Welch window for the PSD panel
@@ -216,6 +224,107 @@ class DrumHistory:
 # Module-level DrumHistory singleton. Panels + SeedLink callback + the
 # backfill thread all write/read from this one instance.
 DRUM = DrumHistory()
+
+
+class PPSDStore:
+    """Accumulating PSD histogram per NSLC for the probabilistic-PSD panel.
+
+    Bins frequency (log-spaced 0.01–50 Hz, 100 bins) × power (linear
+    dB, -200…+100, 60 bins). Each new 60-s segment computes one Welch
+    PSD and increments the cells along the resulting curve. The panel
+    function reads the histogram; the frontend renders it as a 2-D
+    heatmap with NLNM/NHNM reference curves on top.
+    """
+
+    def __init__(self) -> None:
+        self._lock = threading.Lock()
+        self._chan: Dict[str, dict] = {}
+        if HAS_SCIPY:
+            self._f_edges = np.logspace(np.log10(0.01), np.log10(50), PPSD_F_BINS + 1)
+            self._f_centers = np.sqrt(self._f_edges[:-1] * self._f_edges[1:])
+            self._db_edges = np.linspace(PPSD_DB_MIN, PPSD_DB_MAX, PPSD_DB_BINS + 1)
+            self._db_centers = (self._db_edges[:-1] + self._db_edges[1:]) / 2
+
+    def _channel(self, nslc: str) -> dict:
+        c = self._chan.get(nslc)
+        if c is None:
+            c = {
+                "hist":             (np.zeros((PPSD_F_BINS, PPSD_DB_BINS), dtype=np.int32)
+                                     if HAS_SCIPY else None),
+                "n_segments":       0,
+                "last_segment_at":  0.0,
+            }
+            self._chan[nslc] = c
+        return c
+
+    def add_segment(self, nslc: str, samples, sr: float) -> None:
+        if not HAS_SCIPY or sr <= 0 or len(samples) < int(sr * 10):
+            return
+        arr = np.asarray(samples, dtype=np.float64)
+        try:
+            f, pxx = scipy_signal.welch(
+                arr, fs=sr,
+                nperseg=min(len(arr), max(256, int(sr * 4))),
+                scaling="density", detrend="linear",
+            )
+        except Exception as e:
+            log(f"ppsd({nslc}) welch failed: {e!r}")
+            return
+        if len(f) < 2:
+            return
+        # Drop DC bin so log axis works.
+        f = f[1:]; pxx = pxx[1:]
+        db = 10.0 * np.log10(np.maximum(pxx, 1e-30))
+        f_idx  = np.digitize(f,  self._f_edges)  - 1
+        db_idx = np.digitize(db, self._db_edges) - 1
+        valid = ((f_idx  >= 0) & (f_idx  < PPSD_F_BINS) &
+                 (db_idx >= 0) & (db_idx < PPSD_DB_BINS))
+        with self._lock:
+            c = self._channel(nslc)
+            # np.add.at allows scattered increments; cheaper than a Python loop.
+            np.add.at(c["hist"], (f_idx[valid], db_idx[valid]), 1)
+            c["n_segments"]      += 1
+            c["last_segment_at"]  = time.time()
+
+    def snapshot(self, nslc: str):
+        if not HAS_SCIPY:
+            return None
+        with self._lock:
+            c = self._chan.get(nslc)
+            if c is None or c["n_segments"] == 0:
+                return None
+            return {
+                "f_centers":  self._f_centers.tolist(),
+                "db_centers": self._db_centers.tolist(),
+                "hist":       c["hist"].tolist(),
+                "n_segments": int(c["n_segments"]),
+            }
+
+
+PPSD = PPSDStore()
+
+
+def _get_noise_models():
+    """Return Peterson 1993 NLNM/NHNM reference curves via ObsPy. Cached
+    after first call. {nlnm:{periods, db}, nhnm:{periods, db}} or None."""
+    if not HAS_OBSPY:
+        return None
+    cached = getattr(_get_noise_models, "_cache", None)
+    if cached is not None:
+        return cached
+    try:
+        from obspy.signal.spectral_estimation import get_nlnm, get_nhnm
+        l_p, l_db = get_nlnm()
+        h_p, h_db = get_nhnm()
+        cached = {
+            "nlnm": {"periods": list(map(float, l_p)), "db": list(map(float, l_db))},
+            "nhnm": {"periods": list(map(float, h_p)), "db": list(map(float, h_db))},
+        }
+    except Exception as e:
+        log(f"noise models unavailable: {e!r}")
+        cached = None
+    _get_noise_models._cache = cached
+    return cached
 
 
 # ── Output ────────────────────────────────────────────────────────────────
@@ -515,7 +624,36 @@ PANELS = {
     "drum":        panel_drum,
     "sta-lta":     panel_sta_lta,
     "particle-motion": panel_particle_motion,
+    "ppsd":         None,  # bound below (definition uses PPSD instance)
 }
+
+
+def panel_ppsd(nslc: str, _ring: RingBuffer) -> dict | None:
+    """Probabilistic PSD — heatmap of PSD vs frequency, accumulated over
+    every minute of streamed data. NLNM/NHNM reference curves attached
+    (frontend draws them as overlays). Returns None until at least one
+    PSD segment has been added (typically ~60 s after subscribe)."""
+    snap = PPSD.snapshot(nslc)
+    if snap is None:
+        return None
+    out = {
+        "frame":      "panel",
+        "panel":      "ppsd",
+        "station":    nslc,
+        "t":          time.time(),
+        "fHz":        snap["f_centers"],
+        "dbCenters":  snap["db_centers"],
+        "hist":       snap["hist"],
+        "nSegments":  snap["n_segments"],
+    }
+    nm = _get_noise_models()
+    if nm is not None:
+        out["nlnm"] = nm["nlnm"]
+        out["nhnm"] = nm["nhnm"]
+    return out
+
+
+PANELS["ppsd"] = panel_ppsd
 
 
 # ── Subscription registry ──────────────────────────────────────────────────
@@ -891,6 +1029,24 @@ def cmd_loop(sl_router) -> None:
 
 # ── Panel timer thread ────────────────────────────────────────────────────
 
+def ppsd_loop(ring: RingBuffer) -> None:
+    """Background thread: every PPSD_INTERVAL_S, snapshot a fresh
+    segment from each station that has the ppsd panel subscribed and
+    feed it into PPSD."""
+    while True:
+        time.sleep(PPSD_INTERVAL_S)
+        with _subs_lock:
+            stations = [s for s, panels in _subscriptions.items() if "ppsd" in panels]
+        for nslc in stations:
+            sr, data = ring.snapshot(nslc, PPSD_SEGMENT_S)
+            if not data:
+                continue
+            try:
+                PPSD.add_segment(nslc, data, sr)
+            except Exception as e:
+                log(f"ppsd({nslc}) add_segment failed: {e!r}")
+
+
 def panel_loop(ring: RingBuffer) -> None:
     period = 1.0 / PANEL_TICK_HZ
     while True:
@@ -940,6 +1096,8 @@ def main() -> None:
 
     threading.Thread(target=panel_loop, args=(ring,),
                      name="panels", daemon=True).start()
+    threading.Thread(target=ppsd_loop, args=(ring,),
+                     name="ppsd", daemon=True).start()
 
     # cmd_loop blocks the main thread on stdin.
     cmd_loop(sl_router)
