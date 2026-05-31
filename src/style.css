@@ -530,6 +530,47 @@ html, body {
 }
 .units-select:focus { outline: none; border-color: var(--accent); }
 
+.alert-picker { display: inline-flex; align-items: center; gap: 4px; }
+.alert-btn {
+  background: #1a1a1a;
+  color: var(--muted);
+  border: 1px solid var(--panel-border);
+  border-radius: 3px;
+  padding: 2px 6px;
+  font-size: 13px;
+  cursor: pointer;
+}
+.alert-btn.on { color: var(--accent); border-color: var(--accent); background: #2a1d10; }
+.alert-thr {
+  width: 48px;
+  background: #1a1a1a;
+  color: var(--fg);
+  border: 1px solid var(--panel-border);
+  border-radius: 3px;
+  padding: 2px 4px;
+  font: inherit;
+  font-size: 12px;
+}
+.alert-thr:focus { outline: none; border-color: var(--accent); }
+
+.alert-banner {
+  position: fixed;
+  left: 50%;
+  top: 44px;
+  transform: translateX(-50%) translateY(-120%);
+  background: #2a1414;
+  color: #ff8a80;
+  border: 1px solid #c0392b;
+  border-radius: 4px;
+  padding: 8px 16px;
+  font-size: 13px;
+  z-index: 200;
+  box-shadow: 0 6px 20px rgba(0,0,0,0.5);
+  transition: transform 0.3s ease;
+  max-width: 90vw;
+}
+.alert-banner.show { transform: translateX(-50%) translateY(0); }
+
 .modal-backdrop {
   position: fixed;
   inset: 0;

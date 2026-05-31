@@ -14,6 +14,8 @@ import { mountRecordSection } from './record-section';
 import { openSettings } from './settings';
 import { mountDashboard, type DashboardHandle } from './dashboard';
 import { mountPanelPicker } from './panel-picker';
+import { mountAlertPicker } from './alert-picker';
+import { alerts } from './alerts';
 import type { SeismicEvent } from '../data/events';
 
 export function mountApp(root: HTMLElement, version: string): void {
@@ -32,6 +34,7 @@ export function mountApp(root: HTMLElement, version: string): void {
     <span class="muted">units:</span>
     <span id="units-mount"></span>
     <span id="panel-picker-mount"></span>
+    <span id="alert-picker-mount"></span>
     <button class="live-btn hidden" id="live-btn" title="Return to live mode">← Live</button>
     <span class="muted" id="conn">connecting…</span>
     <button class="settings-btn" id="settings-btn" title="Settings" aria-label="Settings">⚙</button>
@@ -110,9 +113,20 @@ export function mountApp(root: HTMLElement, version: string): void {
   // it exists, onActiveChanged is a no-op (mountDashboard purposely
   // doesn't fire it during construction).
   let activePanels: string[] = [];
+  // Panels we actually subscribe to = visible dashboard panels, plus
+  // sta-lta when alerts are on (so triggers fire even if that panel
+  // isn't displayed).
+  function subscribedPanels(): string[] {
+    const set = new Set(activePanels);
+    if (alerts.isEnabled()) set.add('sta-lta');
+    return [...set];
+  }
+  function resubscribe() {
+    if (clientReady) client.subscribe(currentStation, subscribedPanels());
+  }
   function onActiveChanged(ids: string[]) {
     activePanels = ids;
-    if (clientReady) client.subscribe(currentStation, activePanels);
+    resubscribe();
   }
   let clientReady = false;
   const dashboard: DashboardHandle = mountDashboard(dashHost, {
@@ -144,6 +158,16 @@ export function mountApp(root: HTMLElement, version: string): void {
         }
       }
       dashboard.setFrame(panelId, frame);
+      // Feed STA/LTA peaks to the alert evaluator (works even if the
+      // sta-lta panel isn't on the dashboard).
+      if (panelId === 'sta-lta') {
+        const fr = frame as { station: string; data?: number[] };
+        if (fr.data?.length) {
+          let peak = 0;
+          for (const v of fr.data) if (v > peak) peak = v;
+          alerts.feed(fr.station, peak);
+        }
+      }
     },
   });
 
@@ -200,7 +224,7 @@ export function mountApp(root: HTMLElement, version: string): void {
     picker.setStation(next);
     refreshDrumOverlays();
     void ensureStationCoords(currentStation);
-    client.subscribe(currentStation, activePanels);
+    client.subscribe(currentStation, subscribedPanels());
     if (currentFilter.kind !== 'none') {
       client.setFilter(currentStation, {
         kind: currentFilter.kind,
@@ -263,6 +287,9 @@ export function mountApp(root: HTMLElement, version: string): void {
     onReset:  () => dashboard.resetLayout(),
   });
 
+  const alertMount = document.getElementById('alert-picker-mount')!;
+  mountAlertPicker(alertMount, () => resubscribe());
+
   document.getElementById('live-btn')?.addEventListener('click', () => pickEvent(null));
   document.getElementById('settings-btn')?.addEventListener('click', openSettings);
 
@@ -272,5 +299,5 @@ export function mountApp(root: HTMLElement, version: string): void {
   refreshDrumOverlays();
   void ensureStationCoords(currentStation);
   clientReady = true;
-  client.subscribe(currentStation, activePanels);
+  client.subscribe(currentStation, subscribedPanels());
 }
