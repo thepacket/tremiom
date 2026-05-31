@@ -13,6 +13,7 @@ import { particleMotion } from './particle-motion';
 import { ppsd } from './ppsd';
 import { spectrum } from './spectrum';
 import { threeComp } from './three-comp';
+import { hv } from './hv';
 import { network } from './network';
 import { clipboard } from './clipboard';
 import { qc } from './qc';
@@ -33,5 +34,5 @@ export interface PanelDef {
 }
 
 export const panelRegistry: Record<string, PanelDef> = Object.fromEntries(
-  [drum, rsam, helicorder, spectrogram, spectrum, rawScope, threeComp, psd, staLta, particleMotion, ppsd, network, clipboard, qc].map((p) => [p.id, p])
+  [drum, rsam, helicorder, spectrogram, spectrum, rawScope, threeComp, hv, psd, staLta, particleMotion, ppsd, network, clipboard, qc].map((p) => [p.id, p])
 );

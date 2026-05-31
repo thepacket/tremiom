@@ -786,6 +786,68 @@ def panel_three_comp(nslc: str, ring: RingBuffer) -> dict | None:
     }
 
 
+HV_WIN_S = 60.0       # window for each H/V spectral estimate
+HV_NPERSEG = 1024
+
+
+def panel_hv(nslc: str, ring: RingBuffer) -> dict | None:
+    """H/V spectral ratio (Nakamura) — horizontal-to-vertical spectral
+    ratio. The standard ambient-noise site-response estimate: the peak
+    frequency marks the soil column's fundamental resonance, and its
+    amplitude relates to the impedance contrast. H = sqrt((N²+E²)/2) in
+    the spectral domain, divided by the vertical V."""
+    if not HAS_SCIPY:
+        return None
+    try:
+        net, sta, loc, cha = nslc.split(".")
+    except ValueError:
+        return None
+    if len(cha) != 3:
+        return None
+    base = cha[:-1]
+    z_nslc = f"{net}.{sta}.{loc}.{base}Z"
+    sr_z, z = ring.snapshot(z_nslc, HV_WIN_S)
+    pair = horizontal_pair(nslc, ring, HV_WIN_S)
+    if not z or pair is None or sr_z <= 0:
+        return None
+    n_suffix, e_suffix, sr_h, n, e = pair
+    if abs(sr_h - sr_z) > 1e-6:
+        return None  # need matching sample rates for a clean ratio
+    L = min(len(z), len(n), len(e))
+    if L < HV_NPERSEG:
+        return None
+    nper = min(HV_NPERSEG, L)
+    zf = scipy_signal.welch(np.asarray(z[-L:], dtype=np.float64), fs=sr_z,
+                            nperseg=nper, detrend="linear")
+    nf = scipy_signal.welch(np.asarray(n[-L:], dtype=np.float64), fs=sr_z,
+                            nperseg=nper, detrend="linear")
+    ef = scipy_signal.welch(np.asarray(e[-L:], dtype=np.float64), fs=sr_z,
+                            nperseg=nper, detrend="linear")
+    freqs, pz = zf
+    pn, pe = nf[1], ef[1]
+    # H/V = sqrt((N+E)/2) / V on power spectra → amplitude ratio.
+    with np.errstate(divide="ignore", invalid="ignore"):
+        hv = np.sqrt((pn + pe) / 2.0 / np.maximum(pz, 1e-30))
+    # Drop DC bin.
+    freqs = freqs[1:]; hv = hv[1:]
+    if len(freqs) < 4:
+        return None
+    # Peak (site resonance) within 0.1–20 Hz.
+    band = (freqs >= 0.1) & (freqs <= 20)
+    peak_f = None
+    if np.any(band):
+        bi = np.argmax(np.where(band, hv, -np.inf))
+        peak_f = float(freqs[bi])
+    return {
+        "frame": "panel", "panel": "hv",
+        "station": nslc, "t": time.time(),
+        "fMinHz": float(freqs[0]), "fMaxHz": float(freqs[-1]),
+        "data": [float(v) for v in hv],
+        "peakHz": peak_f,
+        "chN": f"{base}{n_suffix}", "chE": f"{base}{e_suffix}",
+    }
+
+
 STA_WIN_S = 1.0   # short-term-average window
 LTA_WIN_S = 10.0  # long-term-average window
 STA_LTA_VIEW_S = 60.0   # how much history to ship to the client per frame
@@ -849,6 +911,7 @@ PANELS = {
     "spectrum":    panel_spectrum,
     "sta-lta":     panel_sta_lta,
     "three-comp":  panel_three_comp,
+    "hv":          panel_hv,
     "particle-motion": panel_particle_motion,
     "ppsd":         None,  # bound below (definition uses PPSD instance)
 }
@@ -1378,7 +1441,7 @@ def cmd_loop(sl_router) -> None:
                 streams: list[str] = []
                 for s, panels in _subscriptions.items():
                     streams.append(s)
-                    if "particle-motion" in panels or "three-comp" in panels:
+                    if (panels & {"particle-motion", "three-comp", "hv"}):
                         for sib in three_comp_siblings(s):
                             if sib not in streams:
                                 streams.append(sib)
