@@ -222,6 +222,93 @@ html, body {
 .setting-value .ok    { color: #7cb342; }
 .setting-value .bad   { color: #ff8a80; }
 .setting-value .muted { color: var(--muted); }
+#sl-status.ok    { color: #7cb342; }
+#sl-status.bad   { color: #ff8a80; }
+#sl-status.muted { color: var(--muted); }
+
+.settings-sep {
+  border: none;
+  border-top: 1px solid #2a2a2a;
+  margin: 4px 0;
+}
+.setting-section-title {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--fg);
+  letter-spacing: 0.02em;
+}
+.setting-help {
+  font-size: 11px;
+  color: var(--muted);
+  line-height: 1.45;
+}
+.setting-help code {
+  background: #0d0d0d;
+  border: 1px solid #2a2a2a;
+  border-radius: 2px;
+  padding: 0 4px;
+  font-size: 11px;
+}
+.sl-input,
+.sl-net-row input {
+  background: #0d0d0d;
+  color: var(--fg);
+  border: 1px solid #2a2a2a;
+  border-radius: 3px;
+  padding: 4px 8px;
+  font: inherit;
+  font-size: 12px;
+}
+.sl-input { width: 100%; box-sizing: border-box; }
+.sl-net-row {
+  display: grid;
+  grid-template-columns: 60px 1fr auto;
+  gap: 6px;
+  align-items: center;
+  margin-bottom: 4px;
+}
+.sl-net-row .sl-net { text-transform: uppercase; }
+.sl-net-row .sl-up  { width: 100%; }
+.sl-net-row .sl-rm {
+  background: transparent;
+  color: var(--muted);
+  border: 1px solid #2a2a2a;
+  border-radius: 3px;
+  padding: 2px 8px;
+  cursor: pointer;
+  font: inherit;
+  font-size: 14px;
+  line-height: 1;
+}
+.sl-net-row .sl-rm:hover { color: #ff8a80; border-color: #c0392b; }
+.sl-add {
+  background: transparent;
+  color: var(--muted);
+  border: 1px dashed #3a3a3a;
+  border-radius: 3px;
+  padding: 4px 10px;
+  cursor: pointer;
+  font: inherit;
+  font-size: 11px;
+  margin-top: 4px;
+}
+.sl-add:hover { color: var(--fg); border-color: #555; }
+.setting-value button.primary,
+.setting-value button.secondary {
+  background: #0d0d0d;
+  color: var(--fg);
+  border: 1px solid #2a2a2a;
+  border-radius: 3px;
+  padding: 4px 12px;
+  font: inherit;
+  font-size: 12px;
+  cursor: pointer;
+  margin-right: 6px;
+}
+.setting-value button.primary:hover   { border-color: #555; }
+.setting-value button.secondary       { color: var(--muted); }
+.setting-value button.secondary:hover { color: var(--fg); border-color: #555; }
+.setting-value button.primary:disabled { opacity: 0.5; cursor: progress; }
 
 #signout-form button.danger {
   background: transparent;

@@ -23,6 +23,53 @@ const PORT = +(process.env.PORT || 8080);
 const DIST = resolve(new URL('./dist', import.meta.url).pathname);
 const PYTHON = process.env.TREMIOM_PYTHON || resolve('workers/.venv/bin/python');
 
+// ─── SeedLink upstream config ─────────────────────────────────────────────
+// Held in memory; pushed to the worker over stdin on every spawn AND on
+// every change from the settings UI. Built-in defaults are the
+// historically-shipped values; env vars TREMIOM_SEEDLINK_DEFAULT and
+// TREMIOM_SEEDLINK_NETWORKS override them at boot; the UI overrides at
+// runtime. Format for the env var:
+//   TREMIOM_SEEDLINK_DEFAULT="host:port"
+//   TREMIOM_SEEDLINK_NETWORKS="AM=host:port,XX=host:port"
+const BUILTIN_SEEDLINK_DEFAULT = 'rtserve.iris.washington.edu:18000';
+const BUILTIN_SEEDLINK_NETWORKS = { AM: 'data.raspberryshake.org:18000' };
+
+function parseUpstreamLoose(s) {
+  if (typeof s !== 'string') return null;
+  const t = s.trim();
+  if (!t) return null;
+  if (!t.includes(':')) return `${t}:18000`;
+  const i = t.lastIndexOf(':');
+  const host = t.slice(0, i).trim();
+  const port = +t.slice(i + 1);
+  if (!host || !Number.isInteger(port) || port <= 0 || port > 65535) return null;
+  return `${host}:${port}`;
+}
+
+function parseNetworksEnv(s) {
+  const out = {};
+  if (typeof s !== 'string' || !s.trim()) return out;
+  for (const piece of s.split(',')) {
+    const eq = piece.indexOf('=');
+    if (eq < 0) continue;
+    const net = piece.slice(0, eq).trim().toUpperCase();
+    const up = parseUpstreamLoose(piece.slice(eq + 1));
+    if (net && up) out[net] = up;
+  }
+  return out;
+}
+
+const _envNetworks = parseNetworksEnv(process.env.TREMIOM_SEEDLINK_NETWORKS || '');
+const seedlinkConfig = {
+  default: parseUpstreamLoose(process.env.TREMIOM_SEEDLINK_DEFAULT || '')
+            || BUILTIN_SEEDLINK_DEFAULT,
+  networks: Object.keys(_envNetworks).length
+    ? _envNetworks
+    : { ...BUILTIN_SEEDLINK_NETWORKS },
+};
+console.log(`[seedlink] default=${seedlinkConfig.default} ` +
+  `networks=${JSON.stringify(seedlinkConfig.networks)}`);
+
 // ─── Whole-app token gate ─────────────────────────────────────────────────
 // When TREMIOM_TOKEN is set (e.g. `fly secrets set TREMIOM_TOKEN=…`), every
 // HTTP and WebSocket request must present a matching cookie. A one-time
@@ -224,6 +271,67 @@ function handleAuthStatus(req, res) {
     required: !!TREMIOM_TOKEN,
     authenticated: !TREMIOM_TOKEN || isAuthorized(req),
   }));
+}
+
+// GET  → returns the live config (and the env-var defaults so the UI
+//        can show "reset to env defaults").
+// POST → updates the live config and pushes it to the worker. Body:
+//        { default: "host:port", networks: { "AM": "host:port", ... } }
+function handleSeedlinkConfig(req, res) {
+  if (req.method === 'GET') {
+    res.writeHead(200, {
+      'content-type': 'application/json',
+      'cache-control': 'no-store',
+    });
+    res.end(JSON.stringify({
+      current: { default: seedlinkConfig.default, networks: seedlinkConfig.networks },
+      builtinDefaults: {
+        default: BUILTIN_SEEDLINK_DEFAULT,
+        networks: BUILTIN_SEEDLINK_NETWORKS,
+      },
+    }));
+    return;
+  }
+  if (req.method !== 'POST') {
+    res.writeHead(405, { 'content-type': 'application/json' });
+    res.end(JSON.stringify({ error: 'method not allowed' }));
+    return;
+  }
+  let buf = '';
+  req.setEncoding('utf8');
+  req.on('data', (c) => { buf += c; if (buf.length > 8192) req.destroy(); });
+  req.on('end', () => {
+    let body;
+    try { body = JSON.parse(buf); } catch {
+      res.writeHead(400, { 'content-type': 'application/json' });
+      res.end(JSON.stringify({ error: 'invalid json' }));
+      return;
+    }
+    const def = parseUpstreamLoose(body?.default);
+    if (!def) {
+      res.writeHead(400, { 'content-type': 'application/json' });
+      res.end(JSON.stringify({ error: 'invalid default upstream' }));
+      return;
+    }
+    const networks = {};
+    if (body?.networks && typeof body.networks === 'object') {
+      for (const [k, v] of Object.entries(body.networks)) {
+        const up = parseUpstreamLoose(v);
+        const net = String(k || '').trim().toUpperCase();
+        if (net && up) networks[net] = up;
+      }
+    }
+    seedlinkConfig.default = def;
+    seedlinkConfig.networks = networks;
+    console.log(`[seedlink] updated via API: default=${def} ` +
+      `networks=${JSON.stringify(networks)}`);
+    pushSeedlinkConfig();
+    res.writeHead(200, { 'content-type': 'application/json' });
+    res.end(JSON.stringify({
+      ok: true,
+      current: { default: seedlinkConfig.default, networks: seedlinkConfig.networks },
+    }));
+  });
 }
 
 const MIME = {
@@ -947,6 +1055,10 @@ const httpServer = http.createServer((req, res) => {
     if (!isAuthorized(req)) { sendUnauthorized(req, res); return; }
   }
 
+  if (req.url?.startsWith('/api/config/seedlink')) {
+    handleSeedlinkConfig(req, res);
+    return;
+  }
   if (req.url?.startsWith('/api/event/detail')) {
     handleEventDetail(req, res);
     return;
@@ -1050,7 +1162,11 @@ function spawnWorker() {
   proc.on('exit', (code) => {
     console.log(`[worker] exited ${code} — restarting in 2s`);
     worker = null;
-    setTimeout(() => { worker = spawnWorker(); resubscribeAll(); }, 2000);
+    setTimeout(() => {
+      worker = spawnWorker();
+      pushSeedlinkConfig();
+      resubscribeAll();
+    }, 2000);
   });
   console.log(`[worker] spawned (${WORKER_ARGS.join(' ')})`);
   return proc;
@@ -1059,6 +1175,14 @@ function spawnWorker() {
 function tellWorker(msg) {
   if (!worker) return;
   try { worker.stdin.write(JSON.stringify(msg) + '\n'); } catch {}
+}
+
+function pushSeedlinkConfig() {
+  tellWorker({
+    op: 'seedlink-config',
+    default: seedlinkConfig.default,
+    networks: seedlinkConfig.networks,
+  });
 }
 
 function resubscribeAll() {
@@ -1127,8 +1251,10 @@ wss.on('connection', (ws) => {
 });
 
 // Spawn the unified Python worker before we start accepting clients so its
-// SeedLink connection has a head start.
+// SeedLink connection has a head start. Push the upstream config
+// immediately so the first subscribe lands on the right server.
 worker = spawnWorker();
+pushSeedlinkConfig();
 
 httpServer.listen(PORT, () => {
   console.log(`tremiom server on :${PORT}`);

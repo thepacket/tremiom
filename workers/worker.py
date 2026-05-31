@@ -62,14 +62,34 @@ except ImportError:
 
 # ── Configuration ──────────────────────────────────────────────────────────
 
-# Per-network SeedLink upstream routing. AM stations (Raspberry Shake
-# citizen seismometers) live on a different SeedLink server than the
-# IRIS/EarthScope global network; everything else (IU, II, GE, IV, US,
-# AU, NZ, …) is on IRIS rtserve.
-DEFAULT_SEEDLINK = ("rtserve.iris.washington.edu", 18000)
-NETWORK_UPSTREAMS: Dict[str, tuple] = {
+# Fallback SeedLink routing used until the supervising server pushes the
+# configured upstreams via a `seedlink-config` cmd message. These exist
+# so a standalone `python worker.py` run still has somewhere to dial; in
+# normal operation server.mjs sends config (from env vars or the
+# settings UI) on every worker spawn before the first subscribe.
+FALLBACK_DEFAULT_SEEDLINK = ("rtserve.iris.washington.edu", 18000)
+FALLBACK_NETWORK_UPSTREAMS: Dict[str, tuple] = {
     "AM": ("data.raspberryshake.org", 18000),
 }
+
+
+def _parse_upstream(s: str) -> tuple | None:
+    """Parse a 'host:port' string. Returns None on any parse failure."""
+    s = (s or "").strip()
+    if not s:
+        return None
+    if ":" not in s:
+        # Default SeedLink port if the user typed bare host.
+        return (s, 18000)
+    host, _, port = s.rpartition(":")
+    host = host.strip()
+    try:
+        port_i = int(port)
+    except ValueError:
+        return None
+    if not host or port_i <= 0 or port_i > 65535:
+        return None
+    return (host, port_i)
 
 RING_SECONDS = 120          # per-channel buffer length
 
@@ -1334,17 +1354,65 @@ class SeedLinkConnection:
 
 class SeedLinkRouter:
     """Top-level: partitions subscribed stations across one connection
-    per upstream, lazily creating connections as networks appear."""
+    per upstream, lazily creating connections as networks appear.
 
-    def __init__(self, ring: RingBuffer) -> None:
+    Upstream routing is mutable (set via `reconfigure`) — the supervising
+    Node server pushes the configured upstreams over stdin so the choice
+    can be changed at runtime from the UI without restarting the worker.
+    """
+
+    def __init__(self, ring: RingBuffer,
+                 default_upstream: tuple,
+                 network_overrides: Dict[str, tuple]) -> None:
         self._ring = ring
         self._connections: Dict[tuple, SeedLinkConnection] = {}
+        self._default = default_upstream
+        self._network_overrides: Dict[str, tuple] = dict(network_overrides)
+        self._last_streams: list[str] = []
 
-    @staticmethod
-    def upstream_for(network: str) -> tuple:
-        return NETWORK_UPSTREAMS.get(network, DEFAULT_SEEDLINK)
+    def upstream_for(self, network: str) -> tuple:
+        return self._network_overrides.get(network, self._default)
+
+    def describe(self) -> str:
+        return (f"default={self._default[0]}:{self._default[1]} "
+                f"per-network={{" + ", ".join(
+                    f"{k}={v[0]}:{v[1]}" for k, v in
+                    sorted(self._network_overrides.items())
+                ) + "}")
+
+    def reconfigure(self, default_upstream: tuple,
+                    network_overrides: Dict[str, tuple]) -> None:
+        """Replace the routing table and rebuild active connections.
+
+        Stations whose upstream is unchanged keep their TCP connection
+        alive; ones whose upstream moved get torn down and reopened
+        against the new server. A brief blackout (a few seconds) is
+        expected on stations that actually migrated.
+        """
+        self._default = default_upstream
+        self._network_overrides = dict(network_overrides)
+        log(f"sl: reconfigured — {self.describe()}")
+        # Recompute which upstreams are still needed for the current
+        # subscription set and migrate connections accordingly.
+        self.set_streams(self._last_streams)
+        # Any connection no longer referenced by any stream gets emptied
+        # (which triggers its own clean disconnect inside SeedLinkConnection).
+        in_use = set()
+        for s in self._last_streams:
+            try:
+                net = s.split(".")[0]
+            except Exception:
+                continue
+            in_use.add(self.upstream_for(net))
+        for up in list(self._connections.keys()):
+            if up not in in_use:
+                try:
+                    self._connections[up].set_streams([])
+                except Exception:
+                    pass
 
     def set_streams(self, nslcs: list[str]) -> None:
+        self._last_streams = list(nslcs)
         # Partition by upstream.
         by_upstream: Dict[tuple, list[str]] = defaultdict(list)
         for s in nslcs:
@@ -1447,6 +1515,26 @@ def cmd_loop(sl_router) -> None:
                 threading.Thread(target=fetch_inventory, args=(station,),
                                  name="inv-fetch", daemon=True).start()
             continue
+        elif op == "seedlink-config":
+            # The supervising Node server pushes the configured upstreams
+            # here. Bad/missing values fall back to the existing routing
+            # so the worker never ends up with no upstream.
+            default_raw = (msg.get("default") or "").strip()
+            networks_raw = msg.get("networks") or {}
+            default_up = _parse_upstream(default_raw)
+            if default_up is None:
+                log(f"seedlink-config: bad default {default_raw!r} — ignoring")
+                continue
+            network_overrides: Dict[str, tuple] = {}
+            for k, v in networks_raw.items():
+                up = _parse_upstream(str(v or ""))
+                if up is not None and isinstance(k, str) and k:
+                    network_overrides[k.upper()] = up
+            if sl_router is not None:
+                sl_router.reconfigure(default_up, network_overrides)
+            else:
+                log("seedlink-config: ignored (worker in synthetic mode)")
+            continue
         else:
             continue
         # Recompute SeedLink stream sets from current subscriptions.
@@ -1516,11 +1604,6 @@ def main() -> None:
 
     mode = "synthetic" if (args.synthetic or not HAS_OBSPY) else "live"
     log(f"start  obspy={HAS_OBSPY}  scipy={HAS_SCIPY}  mode={mode}")
-    if mode == "live":
-        upstreams = {DEFAULT_SEEDLINK, *NETWORK_UPSTREAMS.values()}
-        log(f"seedlink upstreams: default={DEFAULT_SEEDLINK} "
-            f"per-network={NETWORK_UPSTREAMS} "
-            f"({len(upstreams)} unique)")
 
     ring = RingBuffer()
     if args.synthetic or not HAS_OBSPY:
@@ -1529,7 +1612,15 @@ def main() -> None:
         start_synthetic(ring)
         sl_router = None
     else:
-        sl_router = SeedLinkRouter(ring)
+        # Boot with the built-in fallback routing; the supervising Node
+        # server sends the real config via a `seedlink-config` cmd
+        # message immediately after spawn (and again on every restart),
+        # before any subscriptions arrive.
+        sl_router = SeedLinkRouter(
+            ring, FALLBACK_DEFAULT_SEEDLINK, FALLBACK_NETWORK_UPSTREAMS,
+        )
+        log(f"seedlink upstreams (fallback, awaiting config): "
+            f"{sl_router.describe()}")
 
     threading.Thread(target=panel_loop, args=(ring,),
                      name="panels", daemon=True).start()

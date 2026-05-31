@@ -231,6 +231,30 @@ invalid immediately.
 When the env var is unset, the server is open (the default for local
 dev and self-hosting).
 
+## SeedLink upstream servers
+
+Tremiom doesn't bake the live-data servers into the binary. Settings →
+**SeedLink upstreams** lets you set the default server (where most
+networks go) and any per-network overrides (e.g. AM → Raspberry Shake).
+Changes take effect immediately; stations whose upstream actually moved
+reconnect within a few seconds.
+
+You can also seed initial values from the deploy environment so a fresh
+machine boots with your choice without anyone having to open the UI:
+
+```bash
+fly secrets set \
+  TREMIOM_SEEDLINK_DEFAULT="rtserve.iris.washington.edu:18000" \
+  TREMIOM_SEEDLINK_NETWORKS="AM=data.raspberryshake.org:18000" \
+  -a tremiom
+```
+
+`TREMIOM_SEEDLINK_NETWORKS` is a comma-separated list of `NET=host:port`
+pairs. If a port is omitted, the SeedLink default `18000` is assumed.
+If neither env var is set, built-in defaults
+(`rtserve.iris.washington.edu:18000` and `AM=data.raspberryshake.org:18000`)
+apply, and you can still override them at runtime in the UI.
+
 ## Deploy (fly.io)
 
 A [`Dockerfile`](./Dockerfile) and a [`fly.toml`](./fly.toml) at the
