@@ -141,29 +141,125 @@ dev and self-hosting).
 ## Deploy (fly.io)
 
 Same shape as Radiom: a [`Dockerfile`](./Dockerfile) and a
-[`fly.toml`](./fly.toml) at the project root.
+[`fly.toml`](./fly.toml) at the project root drive everything. Fly's
+remote builders handle the Docker build, so no local Docker daemon is
+needed once you can run `fly deploy`.
+
+### Prerequisites
 
 ```bash
-# First time only:
-fly apps create tremiom
-fly deploy
+# Install flyctl (macOS/Linux)
+curl -L https://fly.io/install.sh | sh
 
-# Subsequent deploys:
+# Sign in (opens a browser)
+fly auth login
+```
+
+### First-time setup
+
+```bash
+cd /path/to/tremiom
+
+# Create the app (name must be globally unique on fly.io)
+fly apps create tremiom
+
+# Set the private-deployment secret (see "Private-deployment token"
+# above). Skip this if you intend to leave the instance open.
+fly secrets set TREMIOM_TOKEN="$(openssl rand -hex 32)" -a tremiom
+
+# Build + deploy. First build is ~5–8 min (obspy/numpy/scipy wheels);
+# subsequent builds are ~30 s–2 min with layer caching.
 fly deploy
 ```
 
-The image is a multi-stage build:
+Once the deploy lands, visit `https://tremiom.fly.dev/` — you'll see
+the sign-in page (or the app directly if you didn't set a token).
+
+### Subsequent deploys
+
+```bash
+git pull        # if you fetched changes
+fly deploy      # rebuilds image, rolls out
+```
+
+### What the image actually contains
+
+Multi-stage Docker build:
+
 1. `node:22-alpine` builds the Vite/TS frontend → `dist/`
 2. `python:3.11-slim-bookworm` installs ObsPy + numpy + scipy into a
-   self-contained `/opt/venv`
+   self-contained `/opt/venv` (in its own layer so changes to TS source
+   don't bust the pip cache)
 3. Final stage: same Python base + Node 22 from NodeSource + the venv +
-   the built frontend + `server.mjs` and `workers/`
+   built frontend + `server.mjs` + `workers/`
 
-Default Fly config: `primary_region = "yyz"`, shared 1 CPU + 1024 MB,
-`auto_stop_machines = "stop"` so the machine sleeps when idle. Outbound
-TCP 18000 must be open from the Fly region for IRIS rtserve (and
-data.raspberryshake.org if you want AM streams to work) — both are
-allowed by default on Fly.
+Final image size: ~220 MB.
+
+### Default Fly config (`fly.toml`)
+
+| Setting | Value | Notes |
+|---|---|---|
+| `primary_region` | `yyz` | Toronto — change to your nearest Fly region |
+| VM | 1 shared CPU, 1024 MB | Heavy because obspy + scipy + matplotlib hold ~350 MB RSS |
+| `auto_stop_machines` | `stop` | Sleeps when idle, restarts on next request |
+| `auto_start_machines` | `true` | Auto-wake on incoming traffic |
+| `min_machines_running` | `0` | Cost-optimized; first request after sleep adds ~5 s cold-start |
+| `force_https` | `true` | Fly's edge terminates TLS; the inside is HTTP |
+| `internal_port` | `8080` | Matches `PORT` env + `server.mjs` |
+
+Change region by editing `fly.toml` then `fly deploy`. Change VM size
+by editing `[[vm]]` (e.g. `memory_mb = 2048` if you see OOM-kill in
+the logs).
+
+### Outbound network requirements
+
+The container needs outbound access to:
+
+| Host | Port | Why |
+|---|---|---|
+| `rtserve.iris.washington.edu` | 18000/tcp | Live SeedLink (GSN broadbands) |
+| `data.raspberryshake.org` | 18000/tcp | Live SeedLink (AM citizen seismometers) |
+| `service.iris.edu` | 443/tcp | FDSN station + dataselect (event mode) |
+| `service.earthscope.org` | 443/tcp | FDSN — ObsPy redirects IRIS → EarthScope |
+| `earthquake.usgs.gov` | 443/tcp | USGS event feed |
+
+Fly allows all outbound TCP by default — nothing to configure.
+
+### Operating the instance
+
+```bash
+fly logs -a tremiom              # tail logs
+fly status -a tremiom            # machine status
+fly ssh console -a tremiom       # shell into the running container
+fly machine restart -a tremiom   # force restart
+fly scale memory 2048 -a tremiom # bump RAM if obspy spikes
+fly secrets list -a tremiom      # see env var NAMES (values stay hidden)
+fly secrets unset TREMIOM_TOKEN -a tremiom   # remove the token (instance becomes open)
+```
+
+### Custom domain (optional)
+
+```bash
+fly certs create tremiom.yourdomain.com -a tremiom
+# then point a CNAME from yourdomain.com to tremiom.fly.dev
+fly certs show tremiom.yourdomain.com -a tremiom   # check issuance
+```
+
+### Troubleshooting
+
+- **Build fails on a `pip install` step:** a Debian native lib may be
+  missing for some obspy dep. Add it to `apt-get install` in the
+  `pydeps` Docker stage and retry.
+- **OOM-killed machine:** bump `memory_mb` in `fly.toml` to 2048; ObsPy
+  spikes when many `/api/event/waveforms` requests run concurrently.
+- **Stuck at "waiting for first sample" forever:** the SeedLink upstream
+  may be blocked. `fly ssh console` then
+  `nc -zv rtserve.iris.washington.edu 18000` to verify. Fly logs will
+  show `sl[host]: upstream unreachable — backing off 60s` if the probe
+  caught it.
+- **401 after a deploy:** the cookie is still valid against the old
+  `TREMIOM_TOKEN`, but you may have rotated it. Sign in again with the
+  new token via the form.
 
 ## Status
 
