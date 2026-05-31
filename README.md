@@ -56,6 +56,14 @@ public/icon.svg         App icon
 ARCHITECTURE.md         Design doc
 ```
 
+## Contributing
+
+tremiom is a solo-authored project and **does not accept pull requests**. An
+automated workflow closes incoming PRs. Bug reports, feature requests, and
+discussions are welcome — see [`CONTRIBUTING.md`](./CONTRIBUTING.md). The
+GPL-3.0-or-later license grants you the right to fork and modify your fork
+freely.
+
 ## License
 
-GPL-3.0-or-later
+[GPL-3.0-or-later](./LICENSE)
