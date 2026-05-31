@@ -612,6 +612,69 @@ async function handleEventDyfi(req, res) {
   }
 }
 
+// ─── ShakeMap modeled-intensity overlay (raster + bbox) ───────────────────
+const shakemapCache = new Map(); // id -> { ts, bbox, pngUrl }
+const SHAKEMAP_TTL_MS = 30 * 60_000;
+
+async function shakemapMeta(id) {
+  const cached = shakemapCache.get(id);
+  if (cached && Date.now() - cached.ts < SHAKEMAP_TTL_MS) return cached;
+  const det = await fetch(
+    `https://earthquake.usgs.gov/earthquakes/feed/v1.0/detail/${id}.geojson`,
+    { headers: { 'user-agent': 'tremiom (github.com/thepacket/tremiom)' } });
+  if (!det.ok) throw new Error(`detail HTTP ${det.status}`);
+  const dj = await det.json();
+  const sm = (dj?.properties?.products?.shakemap || [])[0];
+  if (!sm) { const v = { ts: Date.now(), bbox: null, pngUrl: null }; shakemapCache.set(id, v); return v; }
+  const p = sm.properties || {};
+  const bbox = {
+    minLat: parseFloat(p['minimum-latitude']), maxLat: parseFloat(p['maximum-latitude']),
+    minLon: parseFloat(p['minimum-longitude']), maxLon: parseFloat(p['maximum-longitude']),
+  };
+  const pngUrl = sm.contents?.['download/intensity_overlay.png']?.url || null;
+  const v = { ts: Date.now(), bbox, pngUrl };
+  shakemapCache.set(id, v);
+  return v;
+}
+
+async function handleShakemap(req, res) {
+  const url = new URL(req.url, 'http://x');
+  const id = (url.searchParams.get('id') || '').trim();
+  if (!/^[A-Za-z0-9]{6,20}$/.test(id)) {
+    res.writeHead(400, { 'content-type': 'application/json' });
+    res.end(JSON.stringify({ error: 'bad id' })); return;
+  }
+  try {
+    const meta = await shakemapMeta(id);
+    const has = !!(meta.bbox && meta.pngUrl &&
+      [meta.bbox.minLat, meta.bbox.maxLat, meta.bbox.minLon, meta.bbox.maxLon].every(Number.isFinite));
+    res.writeHead(200, { 'content-type': 'application/json' });
+    res.end(JSON.stringify({ id, hasShakemap: has, bbox: has ? meta.bbox : null }));
+  } catch (e) {
+    res.writeHead(502, { 'content-type': 'application/json' });
+    res.end(JSON.stringify({ error: 'shakemap meta failed', detail: String(e?.message || e) }));
+  }
+}
+
+async function handleShakemapImage(req, res) {
+  const url = new URL(req.url, 'http://x');
+  const id = (url.searchParams.get('id') || '').trim();
+  if (!/^[A-Za-z0-9]{6,20}$/.test(id)) { res.writeHead(400).end(); return; }
+  try {
+    const meta = await shakemapMeta(id);
+    if (!meta.pngUrl) { res.writeHead(404).end(); return; }
+    const img = await fetch(meta.pngUrl, { headers: { 'user-agent': 'tremiom' } });
+    if (!img.ok) { res.writeHead(img.status).end(); return; }
+    const buf = Buffer.from(await img.arrayBuffer());
+    res.writeHead(200, {
+      'content-type': 'image/png',
+      'cache-control': 'public, max-age=1800',
+      'content-length': buf.length,
+    });
+    res.end(buf);
+  } catch { res.writeHead(502).end(); }
+}
+
 async function handleEventExport(req, res) {
   if (req.method !== 'POST') { res.writeHead(405).end(); return; }
   let body;
@@ -890,6 +953,14 @@ const httpServer = http.createServer((req, res) => {
   }
   if (req.url?.startsWith('/api/event/dyfi')) {
     handleEventDyfi(req, res);
+    return;
+  }
+  if (req.url?.startsWith('/api/event/shakemap-image')) {
+    handleShakemapImage(req, res);
+    return;
+  }
+  if (req.url?.startsWith('/api/event/shakemap')) {
+    handleShakemap(req, res);
     return;
   }
   if (req.url?.startsWith('/api/events')) {

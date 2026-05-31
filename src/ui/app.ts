@@ -260,7 +260,8 @@ export function mountApp(root: HTMLElement, version: string): void {
     currentEventId = e?.id ?? null;
     worldMap.setSelectedEvent(currentEventId);
     eventList.setSelectedEvent(currentEventId);
-    worldMap.setDyfi([]); // clear previous event's felt polygons
+    worldMap.setDyfi([]);            // clear previous event's felt polygons
+    worldMap.setShakemap(null, null); // clear previous ShakeMap overlay
     if (e) {
       showEvent();
       void recordSection.setEvent(e);
@@ -272,6 +273,20 @@ export function mountApp(root: HTMLElement, version: string): void {
           const d = await r.json() as { polygons?: Array<{ cdi: number; ring: number[][] }> };
           if (currentEventId === e.id && d.polygons?.length) worldMap.setDyfi(d.polygons);
         } catch { /* no felt data — fine */ }
+      })();
+      // Overlay the modeled ShakeMap intensity raster (if available).
+      void (async () => {
+        try {
+          const r = await fetch(`/api/event/shakemap?id=${encodeURIComponent(e.id)}`);
+          if (!r.ok) return;
+          const d = await r.json() as {
+            hasShakemap?: boolean;
+            bbox?: { minLat: number; maxLat: number; minLon: number; maxLon: number };
+          };
+          if (currentEventId === e.id && d.hasShakemap && d.bbox) {
+            worldMap.setShakemap(d.bbox, `/api/event/shakemap-image?id=${encodeURIComponent(e.id)}`);
+          }
+        } catch { /* no shakemap — fine */ }
       })();
     } else {
       showLive();

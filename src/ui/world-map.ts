@@ -44,6 +44,10 @@ export interface WorldMap {
   setActiveStation(nslc: string): void;
   setSelectedEvent(eventId: string | null): void;
   setDyfi(polys: Array<{ cdi: number; ring: number[][] }>): void;
+  setShakemap(
+    bbox: { minLat: number; maxLat: number; minLon: number; maxLon: number } | null,
+    imageUrl: string | null,
+  ): void;
 }
 
 export function mountWorldMap(
@@ -72,6 +76,10 @@ export function mountWorldMap(
 
   // DYFI felt-report polygons (event mode): [{cdi, ring:[[lon,lat]...]}].
   let dyfiPolys: Array<{ cdi: number; ring: number[][] }> = [];
+
+  // ShakeMap modeled-intensity raster overlay (event mode).
+  let shakemapImg: HTMLImageElement | null = null;
+  let shakemapBbox: { minLat: number; maxLat: number; minLon: number; maxLon: number } | null = null;
 
   const ro = new ResizeObserver(() => {
     dpr = window.devicePixelRatio || 1;
@@ -218,9 +226,22 @@ export function mountWorldMap(
     ctx.fillRect(0, 0, cssW, cssH);
     drawGraticule();
     drawCoastlines();
+    drawShakemap();
     drawDyfi();
     drawStations();
     drawEvents();
+  }
+
+  function drawShakemap() {
+    if (!shakemapImg || !shakemapBbox || !shakemapImg.complete || !shakemapImg.naturalWidth) return;
+    // Equirectangular projection is separable, so the bbox maps to an
+    // axis-aligned rectangle: project the NW and SE corners.
+    const [x0, y0] = project(shakemapBbox.minLon, shakemapBbox.maxLat); // top-left
+    const [x1, y1] = project(shakemapBbox.maxLon, shakemapBbox.minLat); // bottom-right
+    ctx.globalAlpha = 0.55;
+    ctx.imageSmoothingEnabled = true;
+    try { ctx.drawImage(shakemapImg, x0, y0, x1 - x0, y1 - y0); } catch { /* taint/decoding */ }
+    ctx.globalAlpha = 1;
   }
 
   function drawDyfi() {
@@ -352,5 +373,14 @@ export function mountWorldMap(
     setActiveStation(nslc) { activeStation = nslc; draw(); },
     setSelectedEvent(id) { selectedEventId = id; draw(); },
     setDyfi(polys: Array<{ cdi: number; ring: number[][] }>) { dyfiPolys = polys; draw(); },
+    setShakemap(bbox, imageUrl) {
+      shakemapBbox = bbox;
+      if (!bbox || !imageUrl) { shakemapImg = null; draw(); return; }
+      const img = new Image();
+      img.onload = () => { if (shakemapImg === img) draw(); };
+      img.src = imageUrl;
+      shakemapImg = img;
+      draw();
+    },
   };
 }
