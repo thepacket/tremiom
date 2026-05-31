@@ -260,3 +260,42 @@ In order of recommended build sequence; each chosen for ratio of (impact to seis
 > unchanged (export, picker, felt reports, beachballs, multi-station
 > drum, mobile).
 
+---
+
+## Gap list — completion status (v0.3.11)
+
+All 17 prioritized gaps are now shipped (one substantially covered):
+
+| # | Gap | Status | Version |
+|---|-----|--------|---------|
+| 1 | 3-component scope | ✅ | v0.1.5 / v0.2.8 |
+| 2 | Particle motion hodogram | ✅ | v0.1.5 |
+| 3 | Instrument response removal + units (vel/disp/acc/Wood-Anderson) | ✅ | v0.2.9 |
+| 4 | PPSD | ✅ | v0.1.6 |
+| 5 | Manual phase picker + QuakeML export | ✅ | v0.3.4 |
+| 6 | Multi-station overlay (Network RSAM) | ✅ | v0.3.8 |
+| 7 | Recording / replay / export (PNG + MiniSEED + CSV) | ✅ | v0.3.0 / v0.3.3 |
+| 8 | RSAM | ✅ | v0.2.6 |
+| 9 | Station QC (latency, availability, RMS, fill) | ✅ | v0.3.11 |
+| 10 | Event locator (TauP grid search from picks) | ✅ | v0.3.9 |
+| 11 | Felt reports / intensity | ✅ | v0.3.1 |
+| 12 | Focal mechanism beachballs | ✅ | v0.3.2 |
+| 13 | Mobile-responsive layout | ✅ | v0.3.7 |
+| 14 | Wave clipboard | ✅ | v0.3.10 |
+| 15 | Alerts / named triggers | ✅ | v0.3.6 |
+| 16 | PyWEED-style bulk downloader | ~ covered | event browser + per-event MiniSEED/CSV export (v0.3.3); region-batch multi-event download not built |
+| 17 | Magnitude estimation (ML) | ✅ | v0.3.5 |
+
+Plus **instantaneous spectrum / FFT** (recommendation, not numbered) — v0.2.7.
+
+**Panel count: 14** — drum, RSAM, helicorder strip, spectrogram,
+spectrum (FFT), raw scope, 3-component, PSD, STA/LTA, particle motion,
+PPSD, Network, wave clipboard, station QC. All on a drag/resize
+Grafana-style dashboard with per-panel PNG export.
+
+Net result: Tremiom is now a **superset** of the live-monitoring +
+single-event-analysis feature sets of the surveyed tools, in a
+browser, with a one-token private deploy — with the honest exception of
+PyWEED-style bulk archive harvesting (#16), which is out of scope for an
+interactive viewer and partially served by the event browser + export.
+
