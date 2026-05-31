@@ -60,6 +60,20 @@ export function mountApp(root: HTMLElement, version: string): void {
     const c = stationCoords.get(currentStation);
     setDrumOverlays(currentEvents, c?.lat ?? null, c?.lon ?? null);
   }
+  // If we don't already know the coords for the active station, ask the
+  // server. /api/stations/lookup proxies FDSN station-service and caches
+  // for 1 h. Once resolved, push into the cache and re-render overlays.
+  async function ensureStationCoords(nslc: string) {
+    if (stationCoords.has(nslc)) return;
+    try {
+      const r = await fetch(`/api/stations/lookup?nslc=${encodeURIComponent(nslc)}`);
+      if (!r.ok) return;
+      const j = await r.json() as { found?: boolean; station?: { lat: number; lon: number } };
+      if (!j.found || !j.station) return;
+      stationCoords.set(nslc, { lat: j.station.lat, lon: j.station.lon });
+      if (nslc === currentStation) refreshDrumOverlays();
+    } catch { /* network blip — leave coords unknown */ }
+  }
   // The Browse modal emits this when a searched station is picked, so
   // we can cache its coords for drum overlays.
   window.addEventListener('tremiom:station-coords', (ev: Event) => {
@@ -181,6 +195,7 @@ export function mountApp(root: HTMLElement, version: string): void {
     worldMap.setActiveStation(next);
     picker.setStation(next);
     refreshDrumOverlays();
+    void ensureStationCoords(currentStation);
     client.subscribe(currentStation, INITIAL_PANELS);
     // Filters are keyed by station server-side, so re-apply the current
     // selection for the new station.
@@ -243,6 +258,7 @@ export function mountApp(root: HTMLElement, version: string): void {
 
   // Initial overlay + subscription.
   refreshDrumOverlays();
+  void ensureStationCoords(currentStation);
   client.subscribe(currentStation, INITIAL_PANELS);
 }
 

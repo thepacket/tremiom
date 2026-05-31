@@ -459,6 +459,68 @@ async function handleStationSearch(req, res) {
   }
 }
 
+// Lookup one specific NSLC → {nslc, lat, lon, sensor, sr}. Returns 404 if
+// the IRIS catalog doesn't know about the channel. Used by the frontend
+// to resolve coordinates for custom NSLCs so drum event-markers work
+// even for stations outside the curated preset list.
+async function handleStationLookup(req, res) {
+  const url = new URL(req.url, 'http://x');
+  const nslc = (url.searchParams.get('nslc') || '').trim();
+  if (!/^[A-Z0-9]{1,8}\.[A-Z0-9]{1,8}\.[A-Z0-9]{0,3}\.[A-Z0-9?]{2,3}$/.test(nslc)) {
+    res.writeHead(400, { 'content-type': 'application/json' });
+    res.end(JSON.stringify({ error: 'bad nslc', nslc }));
+    return;
+  }
+  const [net, sta, loc, cha] = nslc.split('.');
+  const args = new URLSearchParams({
+    network: net, station: sta, channel: cha,
+    level: 'channel', format: 'text', nodata: '404',
+  });
+  if (loc) args.set('location', loc);
+  const upstreamUrl = `https://service.iris.edu/fdsnws/station/1/query?${args}`;
+  const cacheKey = upstreamUrl;
+  const now = Date.now();
+  const cached = stationCache.get(cacheKey);
+  if (cached && now - cached.ts < STATION_TTL_MS) {
+    res.writeHead(200, { 'content-type': 'application/json', 'x-cache': 'HIT' });
+    res.end(cached.body);
+    return;
+  }
+  try {
+    const upstream = await fetch(upstreamUrl, {
+      headers: { 'user-agent': 'tremiom (https://github.com/thepacket/tremiom)' },
+    });
+    if (upstream.status === 404) {
+      const body = JSON.stringify({ found: false });
+      stationCache.set(cacheKey, { ts: now, body });
+      res.writeHead(200, { 'content-type': 'application/json', 'x-cache': 'MISS' });
+      res.end(body);
+      return;
+    }
+    if (!upstream.ok) {
+      res.writeHead(upstream.status, { 'content-type': 'application/json' });
+      res.end(JSON.stringify({ error: 'upstream error', status: upstream.status }));
+      return;
+    }
+    const text = await upstream.text();
+    const stations = parseFdsnStationText(text, 1);
+    if (!stations.length) {
+      const body = JSON.stringify({ found: false });
+      stationCache.set(cacheKey, { ts: now, body });
+      res.writeHead(200, { 'content-type': 'application/json', 'x-cache': 'MISS' });
+      res.end(body);
+      return;
+    }
+    const body = JSON.stringify({ found: true, station: stations[0] });
+    stationCache.set(cacheKey, { ts: now, body });
+    res.writeHead(200, { 'content-type': 'application/json', 'x-cache': 'MISS' });
+    res.end(body);
+  } catch (e) {
+    res.writeHead(502, { 'content-type': 'application/json' });
+    res.end(JSON.stringify({ error: 'fetch failed', detail: String(e?.message || e) }));
+  }
+}
+
 /** Parse FDSN station service `format=text` (pipe-delimited, channel-level)
  *  into deduplicated `{nslc, lat, lon, sensor, sr}` records. Latest-epoch
  *  wins on duplicates. */
@@ -521,6 +583,10 @@ const httpServer = http.createServer((req, res) => {
   }
   if (req.url?.startsWith('/api/stations/search')) {
     handleStationSearch(req, res);
+    return;
+  }
+  if (req.url?.startsWith('/api/stations/lookup')) {
+    handleStationLookup(req, res);
     return;
   }
   if (req.url?.startsWith('/api/')) {
