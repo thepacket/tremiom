@@ -30,23 +30,29 @@ export function mountApp(root: HTMLElement, version: string): void {
   const topbar = document.createElement('div');
   topbar.className = 'topbar';
   topbar.innerHTML = `
-    <span class="brand">tremiom</span>
-    <span class="muted">v${version}</span>
-    <span class="muted">station:</span>
-    <span id="picker-mount"></span>
-    <span class="muted">filter:</span>
-    <span id="filter-mount"></span>
-    <span class="muted">units:</span>
-    <span id="units-mount"></span>
-    <span id="panel-picker-mount"></span>
-    <span id="dashboard-bar-mount"></span>
-    <button class="pin-btn" id="pin-btn" title="Pin current trace to the Wave clipboard">📌 Pin</button>
-    <span id="alert-picker-mount"></span>
-    <button class="hist-btn" id="hist-btn" title="Browse arbitrary time windows">🕓 History</button>
-    <button class="live-btn hidden" id="live-btn" title="Return to live mode">← Live</button>
-    <span class="muted" id="conn">connecting…</span>
-    <button class="settings-btn" id="help-btn" title="Help" aria-label="Help">?</button>
-    <button class="settings-btn" id="settings-btn" title="Settings" aria-label="Settings">⚙</button>
+    <div class="topbar-row">
+      <span class="brand">tremiom</span>
+      <span class="muted">v${version}</span>
+      <span class="muted">station:</span>
+      <span id="picker-mount"></span>
+      <span class="muted">filter:</span>
+      <span id="filter-mount"></span>
+      <span class="muted">units:</span>
+      <span id="units-mount"></span>
+      <span class="topbar-spacer"></span>
+      <span class="muted" id="conn">connecting…</span>
+      <button class="settings-btn" id="help-btn" title="Help" aria-label="Help">?</button>
+      <button class="settings-btn" id="settings-btn" title="Settings" aria-label="Settings">⚙</button>
+    </div>
+    <div class="topbar-row">
+      <span id="panel-picker-mount"></span>
+      <span id="dashboard-bar-mount"></span>
+      <button class="pin-btn" id="pin-btn" title="Pin current trace to the Wave clipboard">📌 Pin</button>
+      <span id="alert-picker-mount"></span>
+      <span class="topbar-spacer"></span>
+      <button class="hist-btn" id="hist-btn" title="Browse arbitrary time windows">🕓 History</button>
+      <button class="live-btn hidden" id="live-btn" title="Return to live mode">← Live</button>
+    </div>
   `;
   root.appendChild(topbar);
 

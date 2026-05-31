@@ -6,6 +6,8 @@
   --grid: #1a1a1a;
   --panel-bg: #141414;
   --panel-border: #2a2a2a;
+  /* Two-row topbar height. Everything below the topbar offsets by this. */
+  --topbar-h: 64px;
   font-family: ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
 }
 
@@ -57,7 +59,7 @@ html, body {
   /* Body fills the viewport area below topbar + map at minimum, and
    * grows beyond when the plot grid demands more vertical space.
    * The document scrollbar handles the overflow. */
-  min-height: calc(100vh - 36px - 220px);
+  min-height: calc(100vh - var(--topbar-h) - 220px);
 }
 
 .sidebar-host { display: contents; }
@@ -72,8 +74,8 @@ html, body {
   /* Stick under the topbar so the events list is always reachable, no
    * matter how far the user has scrolled the plots area. */
   position: sticky;
-  top: 36px;
-  max-height: calc(100vh - 36px);
+  top: var(--topbar-h);
+  max-height: calc(100vh - var(--topbar-h));
   align-self: start;
 }
 
@@ -136,7 +138,6 @@ html, body {
   font: inherit;
   font-size: 12px;
   cursor: pointer;
-  margin-left: auto;
 }
 .live-btn:hover { background: #2a1d10; }
 
@@ -172,7 +173,7 @@ html, body {
 .history-view {
   display: grid;
   grid-template-rows: 32px minmax(0, 1fr);
-  height: calc(100vh - 36px - 220px);
+  height: calc(100vh - var(--topbar-h) - 220px);
   min-height: 360px;
   background: var(--panel-bg);
 }
@@ -265,7 +266,7 @@ html, body {
    * is what the user sees. The min-height gives the event-mode
    * record-section panel a defined height (its 30 px header +
    * 1 fr body needs a parent height to size to). */
-  min-height: calc(100vh - 36px - 220px);
+  min-height: calc(100vh - var(--topbar-h) - 220px);
 }
 .main-area > * { grid-area: 1 / 1 / 2 / 2; }
 .main-area .hidden { display: none !important; }
@@ -349,10 +350,9 @@ html, body {
 }
 
 .topbar {
+  /* Two stacked rows. Everything below offsets by --topbar-h. */
   display: flex;
-  align-items: center;
-  gap: 12px;
-  padding: 0 12px;
+  flex-direction: column;
   border-bottom: 1px solid var(--panel-border);
   font-size: 13px;
   /* Stays glued to the top of the viewport while the body scrolls. */
@@ -360,8 +360,18 @@ html, body {
   top: 0;
   z-index: 30;
   background: var(--bg);
-  height: 36px;
+  height: var(--topbar-h);
 }
+.topbar-row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 0 12px;
+  height: 32px;
+  flex: 1;
+}
+.topbar-row:first-child { border-bottom: 1px solid #1a1a1a; }
+.topbar-spacer { flex: 1; }
 
 .topbar .brand { font-weight: 600; color: var(--accent); }
 .topbar .muted { color: var(--muted); }
@@ -864,12 +874,14 @@ html, body {
 
 /* ── Responsive / mobile ─────────────────────────────────────────────── */
 @media (max-width: 1100px) {
-  .topbar { flex-wrap: wrap; height: auto; min-height: 36px; padding: 4px 8px; gap: 8px; }
+  /* Let each row wrap and the bar grow to fit on narrower screens. */
+  .topbar { height: auto; }
+  .topbar-row { flex-wrap: wrap; height: auto; min-height: 30px; padding: 4px 8px; gap: 8px; }
 }
 
 @media (max-width: 760px) {
-  /* Topbar wraps onto multiple lines; let it size to content and stop
-   * being sticky (a tall wrapped bar pinned to the top eats the screen). */
+  /* Topbar grows with wrapped rows; stop being sticky (a tall wrapped
+   * bar pinned to the top eats the screen). */
   .topbar { position: static; }
   .map-host { height: 150px; }
 
