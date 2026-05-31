@@ -32,6 +32,11 @@ export function mountRecordSection(parent: HTMLElement): RecordSectionHandle {
     <header>
       <span class="title">record section</span>
       <span class="muted info"></span>
+      <span class="rs-comp" title="Component (rotate to radial/transverse)">
+        <button class="rs-btn comp-btn active" data-comp="Z">Z</button>
+        <button class="rs-btn comp-btn" data-comp="R">R</button>
+        <button class="rs-btn comp-btn" data-comp="T">T</button>
+      </span>
       <canvas class="rs-beachball" width="48" height="48" title="Focal mechanism"></canvas>
       <span class="rs-pick hidden">
         <button class="rs-btn pick-btn" data-pick="P" title="Click a trace to place a P pick">Pick P</button>
@@ -113,6 +118,18 @@ export function mountRecordSection(parent: HTMLElement): RecordSectionHandle {
 
   exportBar.querySelectorAll('.rs-btn').forEach((b) =>
     b.addEventListener('click', () => exportData((b as HTMLElement).dataset.fmt!)));
+
+  // Z / R / T component toggle — re-fetches the event rotated.
+  const compBar = root.querySelector('.rs-comp') as HTMLElement;
+  compBar.querySelectorAll('.comp-btn').forEach((b) =>
+    b.addEventListener('click', () => {
+      const c = (b as HTMLElement).dataset.comp as 'Z' | 'R' | 'T';
+      if (c === component) return;
+      component = c;
+      compBar.querySelectorAll('.comp-btn').forEach((x) =>
+        x.classList.toggle('active', (x as HTMLElement).dataset.comp === c));
+      if (currentEvent) void setEvent(currentEvent); // re-fetch rotated
+    }));
 
   const pickBar = root.querySelector('.rs-pick') as HTMLElement;
   function updatePickButtons() {
@@ -305,6 +322,7 @@ export function mountRecordSection(parent: HTMLElement): RecordSectionHandle {
   loadPicks();
   let picks: Picks = new Map();
   let pickMode: 'off' | 'P' | 'S' = 'off';
+  let component: 'Z' | 'R' | 'T' = 'Z';
 
   function loadPicks() {
     try {
@@ -585,7 +603,7 @@ export function mountRecordSection(parent: HTMLElement): RecordSectionHandle {
     void loadMechanism(e, myToken);
     void loadMagnitude(e, myToken);
     try {
-      const w = await fetchEventWaveforms(e, { nStations: 6 });
+      const w = await fetchEventWaveforms(e, { nStations: 6, component });
       if (myToken !== token || currentEvent?.id !== e.id) return; // superseded
       waveforms = w;
       if (!w.stations.length) {

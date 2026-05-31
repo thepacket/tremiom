@@ -32,7 +32,7 @@ export interface EventWaveforms {
 }
 
 export async function fetchEventWaveforms(
-  e: SeismicEvent, opts: { nStations?: number } = {}
+  e: SeismicEvent, opts: { nStations?: number; component?: 'Z' | 'R' | 'T' } = {}
 ): Promise<EventWaveforms> {
   const body = {
     eventId: e.id,
@@ -40,6 +40,7 @@ export async function fetchEventWaveforms(
     depthKm: e.depthKm,
     timeMs: e.timeMs,
     nStations: opts.nStations ?? 6,
+    component: opts.component ?? 'Z',
   };
   const r = await fetch('/api/event/waveforms', {
     method: 'POST',

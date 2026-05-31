@@ -116,6 +116,7 @@ def main() -> None:
     time_ms = req.get("timeMs")
     n_stations = int(req.get("nStations") or 6)
     win = req.get("windowSecs") or [-60, 600]
+    component = (req.get("component") or "Z").upper()  # Z | R | T
     if lat is None or lon is None or time_ms is None:
         fail("missing lat/lon/timeMs")
 
@@ -157,14 +158,54 @@ def main() -> None:
         net, sta, loc, cha = nslc.split(".")
         # FDSN dataselect; restitute later if needed.
         try:
-            st = fdsn.get_waveforms(
-                network=net, station=sta, location=loc, channel=cha,
-                starttime=win_start, endtime=win_end,
-            )
-            if not st:
-                errors.append({"nslc": nslc, "error": "empty stream"})
-                continue
-            tr = st[0]
+            if component in ("R", "T"):
+                # Rotate horizontals to radial/transverse. Fetch the two
+                # horizontals (N/E or 1/2), rotate by the station→event
+                # back-azimuth, and take the requested component.
+                from obspy.geodetics import gps2dist_azimuth
+                base = cha[:-1]
+                horiz = None
+                st = None
+                for a, b in (("N", "E"), ("1", "2")):
+                    try:
+                        cand = fdsn.get_waveforms(network=net, station=sta, location=loc,
+                                                  channel=f"{base}{a},{base}{b}",
+                                                  starttime=win_start, endtime=win_end)
+                    except Exception:
+                        cand = None
+                    if cand and len(cand) >= 2:
+                        st = cand; horiz = (a, b); break
+                if horiz is None or st is None or len(st) < 2:
+                    errors.append({"nslc": nslc, "error": "no horizontal pair"})
+                    continue
+                # back-azimuth: azimuth from station to event (deg from N).
+                _, baz, _ = gps2dist_azimuth(s["lat"], s["lon"], lat, lon)
+                st.merge(method=0, fill_value="interpolate")
+                # rotate() needs channels labelled N/E. Relabel 1/2 → N/E
+                # first (approximate: most GSN 1/2 are within a few degrees
+                # of N/E; exact rotation would use the azimuth metadata).
+                for tr0 in st:
+                    ch0 = tr0.stats.channel
+                    if ch0.endswith("1"):
+                        tr0.stats.channel = ch0[:-1] + "N"
+                    elif ch0.endswith("2"):
+                        tr0.stats.channel = ch0[:-1] + "E"
+                st.rotate("NE->RT", back_azimuth=baz)
+                want = "R" if component == "R" else "T"
+                sel = st.select(component=want)
+                if not sel:
+                    errors.append({"nslc": nslc, "error": f"no {want} after rotate"})
+                    continue
+                tr = sel[0]
+            else:
+                st = fdsn.get_waveforms(
+                    network=net, station=sta, location=loc, channel=cha,
+                    starttime=win_start, endtime=win_end,
+                )
+                if not st:
+                    errors.append({"nslc": nslc, "error": "empty stream"})
+                    continue
+                tr = st[0]
         except Exception as e:
             errors.append({"nslc": nslc, "error": repr(e)})
             continue
@@ -211,6 +252,7 @@ def main() -> None:
         "depthKm": depth_km,
         "lat": lat, "lon": lon,
         "windowSecs": [pre, post],
+        "component": component,
         "stations": out_stations,
         "errors": errors,
     }

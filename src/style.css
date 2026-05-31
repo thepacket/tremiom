@@ -305,6 +305,7 @@ html, body {
 .rs-btn:hover { border-color: var(--accent); color: var(--accent); }
 .rs-btn:disabled { opacity: 0.5; cursor: default; }
 .rs-btn.active { background: var(--accent); color: #111; border-color: var(--accent); }
+.rs-comp { display: inline-flex; gap: 3px; margin-left: 10px; }
 .rs-pick { display: inline-flex; gap: 6px; margin-left: 10px; }
 .rs-pick.hidden { display: none; }
 /* When a pick mode is active, the cursor over the plot is a crosshair. */
