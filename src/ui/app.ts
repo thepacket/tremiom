@@ -1,5 +1,6 @@
 import { panelRegistry } from '../panels/registry';
 import { resetSpectrogram } from '../panels/spectrogram';
+import { resetDrum } from '../panels/drum';
 import { TremiomClient } from '../transport/ws';
 import { DEFAULT_STATION } from '../data/stations';
 import { mountStationPicker } from './station-picker';
@@ -9,7 +10,7 @@ import { mountRecordSection } from './record-section';
 import { openSettings } from './settings';
 import type { SeismicEvent } from '../data/events';
 
-const INITIAL_PANELS = ['helicorder', 'spectrogram', 'raw-scope', 'psd'];
+const INITIAL_PANELS = ['drum', 'spectrogram', 'raw-scope', 'psd'];
 
 export function mountApp(root: HTMLElement, version: string): void {
   root.innerHTML = '';
@@ -144,6 +145,7 @@ export function mountApp(root: HTMLElement, version: string): void {
     if (next === currentStation) return;
     client.unsubscribe(currentStation);
     resetSpectrogram();
+    resetDrum();
     for (const r of renderers.values()) r.clear();
     currentStation = next;
     firstFrameAt = null;

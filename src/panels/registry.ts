@@ -6,6 +6,7 @@ import { helicorder } from './helicorder';
 import { spectrogram } from './spectrogram';
 import { rawScope } from './raw-scope';
 import { psd } from './psd';
+import { drum } from './drum';
 
 export type PanelCategory = 'live' | 'event';
 
@@ -23,5 +24,5 @@ export interface PanelDef {
 }
 
 export const panelRegistry: Record<string, PanelDef> = Object.fromEntries(
-  [helicorder, spectrogram, rawScope, psd].map((p) => [p.id, p])
+  [drum, helicorder, spectrogram, rawScope, psd].map((p) => [p.id, p])
 );

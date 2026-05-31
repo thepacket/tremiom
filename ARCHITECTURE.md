@@ -218,6 +218,11 @@ panels (you already have the math from Radiom) once the skeleton is up.
       page, HttpOnly/SameSite=Lax/Secure cookie, /api/auth/{login,
       logout,status} exempt endpoints, ⚙ Settings panel in the topbar
       showing live auth state with Sign Out + re-auth fields
+- [x] **24-hour helicorder drum** — DrumHistory (14400 × 6-s envelope
+      buckets per channel), FDSN dataselect backfill on subscribe,
+      SeedLink callback feeds the same buckets so live + historical
+      data share storage. Per-row auto-scale so a single loud event
+      doesn't crush the rest of the day into invisibility.
 
 ---
 

@@ -37,6 +37,7 @@ from __future__ import annotations
 import argparse
 import json
 import math
+import os
 import socket
 import sys
 import threading
@@ -71,6 +72,14 @@ NETWORK_UPSTREAMS: Dict[str, tuple] = {
 }
 
 RING_SECONDS = 120          # per-channel buffer length
+
+# Helicorder drum — 24 hours of envelope buckets per channel.
+DRUM_HOURS = 24
+DRUM_ROWS = 24                                  # one row per hour
+DRUM_COLS_PER_ROW = 600                         # ~6 s per column at 1 h/row
+DRUM_BUCKET_S = (DRUM_HOURS * 3600) // (DRUM_ROWS * DRUM_COLS_PER_ROW)  # = 6 s
+DRUM_N_BUCKETS = DRUM_ROWS * DRUM_COLS_PER_ROW  # = 14 400
+
 SPECTROGRAM_WIN_S = 8.0     # STFT window for the spectrogram column
 SPECTROGRAM_NPERSEG = 256
 PSD_WIN_S = 60.0            # Welch window for the PSD panel
@@ -115,6 +124,98 @@ class RingBuffer:
             if n <= 0:
                 return sr, []
             return sr, list(buf)[-n:]
+
+
+class DrumHistory:
+    """24-hour envelope history for the helicorder drum panel.
+
+    Stores per-channel min/max amplitude in fixed 6-second buckets indexed
+    by absolute unix time. Each bucket lives in a slot
+    `(bucket_time // DRUM_BUCKET_S) % DRUM_N_BUCKETS` of a NumPy array;
+    when a write lands in a slot whose recorded time is older than the new
+    bucket time, the slot is reset. This is how the circular buffer "ages
+    out" old data as wall time advances.
+
+    Both the SeedLink callback (real-time tail) and the FDSN backfill
+    thread (historical fill) call `write()` with the same shape. The drum
+    panel computer reads the latest 24 h in time order via `snapshot()`.
+    """
+
+    def __init__(self) -> None:
+        self._lock = threading.Lock()
+        self._chan: Dict[str, dict] = {}
+
+    @staticmethod
+    def _bucket_t(t: float) -> int:
+        return int(t // DRUM_BUCKET_S) * DRUM_BUCKET_S
+
+    @staticmethod
+    def _slot(bt: int) -> int:
+        return (bt // DRUM_BUCKET_S) % DRUM_N_BUCKETS
+
+    def _channel(self, nslc: str) -> dict:
+        c = self._chan.get(nslc)
+        if c is None:
+            c = {
+                "mins":       np.full(DRUM_N_BUCKETS, np.nan, dtype=np.float32) if HAS_SCIPY else None,
+                "maxs":       np.full(DRUM_N_BUCKETS, np.nan, dtype=np.float32) if HAS_SCIPY else None,
+                "bt":         np.zeros(DRUM_N_BUCKETS, dtype=np.int64) if HAS_SCIPY else None,
+                "last_write": 0.0,
+            }
+            self._chan[nslc] = c
+        return c
+
+    def write(self, nslc: str, t_start: float, sr: float, samples) -> None:
+        if not HAS_SCIPY or sr <= 0:
+            return
+        arr = np.asarray(samples, dtype=np.float32)
+        if arr.size == 0:
+            return
+        ts  = t_start + np.arange(arr.size) / sr
+        bts = (ts // DRUM_BUCKET_S).astype(np.int64) * DRUM_BUCKET_S
+        unique_bts, inverse = np.unique(bts, return_inverse=True)
+
+        with self._lock:
+            c = self._channel(nslc)
+            c["last_write"] = max(c["last_write"],
+                                  float(t_start + arr.size / sr))
+            for k, bt in enumerate(unique_bts):
+                sub = arr[inverse == k]
+                lo, hi = float(sub.min()), float(sub.max())
+                slot = self._slot(int(bt))
+                if c["bt"][slot] != bt:
+                    c["mins"][slot] = lo
+                    c["maxs"][slot] = hi
+                    c["bt"][slot]   = int(bt)
+                else:
+                    if lo < c["mins"][slot]: c["mins"][slot] = lo
+                    if hi > c["maxs"][slot]: c["maxs"][slot] = hi
+
+    def snapshot(self, nslc: str, now: float):
+        """Return (start_bt, mins, maxs) covering the past 24 h in time
+        order, oldest first. NaN where no data was ever written."""
+        if not HAS_SCIPY:
+            return None
+        with self._lock:
+            c = self._chan.get(nslc)
+            if c is None:
+                return None
+            end_bt   = self._bucket_t(now)
+            start_bt = end_bt - (DRUM_N_BUCKETS - 1) * DRUM_BUCKET_S
+            # Vector lookup: slot for every bucket time we want.
+            wanted = start_bt + np.arange(DRUM_N_BUCKETS, dtype=np.int64) * DRUM_BUCKET_S
+            slots  = (wanted // DRUM_BUCKET_S) % DRUM_N_BUCKETS
+            mins   = np.full(DRUM_N_BUCKETS, np.nan, dtype=np.float32)
+            maxs   = np.full(DRUM_N_BUCKETS, np.nan, dtype=np.float32)
+            present = c["bt"][slots] == wanted
+            mins[present] = c["mins"][slots[present]]
+            maxs[present] = c["maxs"][slots[present]]
+            return int(start_bt), mins, maxs
+
+
+# Module-level DrumHistory singleton. Panels + SeedLink callback + the
+# backfill thread all write/read from this one instance.
+DRUM = DrumHistory()
 
 
 # ── Output ────────────────────────────────────────────────────────────────
@@ -222,11 +323,41 @@ def panel_psd(nslc: str, ring: RingBuffer) -> dict | None:
     }
 
 
+def panel_drum(nslc: str, _ring: RingBuffer) -> dict | None:
+    """Helicorder drum panel — 24 h of min/max envelope buckets in time
+    order, anchored to the current wall clock. Reads from the module-
+    level DRUM instance (the SeedLink callback writes there)."""
+    snap = DRUM.snapshot(nslc, time.time())
+    if snap is None:
+        return None
+    start_bt, mins, maxs = snap
+    # Allow rendering even if mostly NaN — the frontend handles empty
+    # buckets — but skip if literally no bucket has ever been written
+    # (avoid spamming all-NaN frames when a station was just subscribed).
+    if not np.any(np.isfinite(mins)):
+        return None
+    return {
+        "frame":   "panel",
+        "panel":   "drum",
+        "station": nslc,
+        "t":       time.time(),
+        "startMs": int(start_bt * 1000),
+        "endMs":   int((start_bt + DRUM_N_BUCKETS * DRUM_BUCKET_S) * 1000),
+        "rows":    DRUM_ROWS,
+        "cols":    DRUM_COLS_PER_ROW,
+        "bucketS": DRUM_BUCKET_S,
+        # NaN -> None so JSON survives. Buckets without data render as a gap.
+        "min": [None if not np.isfinite(v) else float(v) for v in mins],
+        "max": [None if not np.isfinite(v) else float(v) for v in maxs],
+    }
+
+
 PANELS = {
     "helicorder":  panel_helicorder,
     "spectrogram": panel_spectrogram,
     "raw-scope":   panel_raw_scope,
     "psd":         panel_psd,
+    "drum":        panel_drum,
 }
 
 
@@ -246,6 +377,73 @@ _subscriptions: Dict[str, Set[str]] = defaultdict(set)  # station -> set of pane
 #
 # A small (~1 s) debounce coalesces bursts of subscribe calls so a user
 # adding multiple stations in quick succession doesn't trigger N restarts.
+
+# ── Drum backfill (past 24 h via FDSN) ────────────────────────────────────
+#
+# SeedLink only delivers samples from "now" forward. To make the helicorder
+# drum useful immediately, fetch the past 24 h from FDSN dataselect when a
+# station is first subscribed and feed it through DRUM.write() — buckets
+# end up in the same circular store as the live tail.
+
+_backfill_started: Set[str] = set()
+_backfill_lock = threading.Lock()
+
+
+def _backfill_one(nslc: str) -> None:
+    if not HAS_OBSPY:
+        return
+    try:
+        net, sta, loc, cha = nslc.split(".")
+    except ValueError:
+        return
+    # Make urllib see certifi's bundle (macOS / fresh Linux containers
+    # alike — same as event_fetch.py).
+    if "SSL_CERT_FILE" not in os.environ:
+        try:
+            import certifi
+            os.environ["SSL_CERT_FILE"] = certifi.where()
+        except ImportError:
+            pass
+    try:
+        from obspy import UTCDateTime
+        from obspy.clients.fdsn import Client as FdsnClient
+    except ImportError:
+        return
+
+    now = time.time()
+    t_end   = UTCDateTime(now - 60)  # avoid the "not yet flushed" tail
+    t_start = UTCDateTime(now - 24 * 3600)
+    log(f"backfill[{nslc}]: fetching {t_start} → {t_end}")
+    try:
+        client = FdsnClient("IRIS", timeout=60)
+        st = client.get_waveforms(
+            network=net, station=sta, location=loc, channel=cha,
+            starttime=t_start, endtime=t_end,
+        )
+    except Exception as e:
+        log(f"backfill[{nslc}]: FDSN failed: {e!r}")
+        return
+    if not st:
+        log(f"backfill[{nslc}]: empty result")
+        return
+    total = 0
+    for tr in st:
+        sr = float(tr.stats.sampling_rate)
+        t0 = float(tr.stats.starttime.timestamp)
+        DRUM.write(nslc, t0, sr, tr.data)
+        total += int(len(tr.data))
+    log(f"backfill[{nslc}]: wrote {total} samples ({len(st)} traces)")
+
+
+def kick_backfill(nslc: str) -> None:
+    """Schedule a one-shot backfill for this station, idempotently."""
+    with _backfill_lock:
+        if nslc in _backfill_started:
+            return
+        _backfill_started.add(nslc)
+    threading.Thread(target=_backfill_one, args=(nslc,),
+                     name=f"backfill-{nslc}", daemon=True).start()
+
 
 def _tcp_reachable(host: str, port: int, timeout_s: float = 5.0) -> bool:
     """Quick TCP connect check. Returns True if the connect succeeds
@@ -278,8 +476,17 @@ class SeedLinkConnection:
     def _on_data(self, trace) -> None:
         nslc = (f"{trace.stats.network}.{trace.stats.station}."
                 f"{trace.stats.location}.{trace.stats.channel}")
-        self._ring.write(nslc, float(trace.stats.sampling_rate),
-                         trace.data.tolist())
+        sr   = float(trace.stats.sampling_rate)
+        data = trace.data
+        self._ring.write(nslc, sr, data.tolist())
+        # Feed the 24-h drum history as well. Use the trace's own start
+        # time so historical (FDSN) and live samples land in the right
+        # buckets regardless of when they arrive.
+        try:
+            t0 = float(trace.stats.starttime.timestamp)
+        except Exception:
+            t0 = time.time() - len(data) / max(sr, 1.0)
+        DRUM.write(nslc, t0, sr, data)
 
     def set_streams(self, nslcs: list[str]) -> None:
         """Replace the desired stream set; reconnect debounced."""
@@ -431,6 +638,7 @@ def start_synthetic(ring: RingBuffer):
                 ]
                 for st in stations:
                     ring.write(st, SR, samples)
+                    DRUM.write(st, time.time() - n / SR, SR, samples)
             time.sleep(1.0)
 
     threading.Thread(target=run, name="synthetic", daemon=True).start()
@@ -454,6 +662,9 @@ def cmd_loop(sl_router) -> None:
             with _subs_lock:
                 _subscriptions[station] |= panels
             log(f"+sub {station} panels={sorted(panels)}")
+            # Drum needs 24 h of context; fetch it once per station.
+            if "drum" in panels:
+                kick_backfill(station)
         elif op == "unsubscribe":
             with _subs_lock:
                 _subscriptions.pop(station, None)
