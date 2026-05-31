@@ -64,13 +64,23 @@ export interface DashboardHandle {
    *  (panel add/remove, dashboard switch) so the caller can re-subscribe. */
 }
 
+// Default dashboard: the helicorder drum across a full row, then every
+// live panel that populates for a single station within a few minutes,
+// two per row. Excluded by design — clipboard (empty until you pin),
+// network (needs a station group), QC (operator metrics), and the
+// markdown notes panel; all available via "+ Panel".
 const DEFAULT_WIDGETS: Widget[] = [
-  { id: 'drum',            type: 'drum',            x: 0,  y: 0,  w: 24, h: 10 },
-  { id: 'rsam',            type: 'rsam',            x: 0,  y: 10, w: 24, h: 7 },
-  { id: 'spectrogram',     type: 'spectrogram',     x: 0,  y: 17, w: 12, h: 9 },
-  { id: 'sta-lta',         type: 'sta-lta',         x: 12, y: 17, w: 12, h: 9 },
-  { id: 'particle-motion', type: 'particle-motion', x: 0,  y: 26, w: 8,  h: 11 },
-  { id: 'ppsd',            type: 'ppsd',            x: 8,  y: 26, w: 16, h: 11 },
+  { id: 'drum',            type: 'drum',            x: 0, y: 0,  w: 12, h: 10 },
+  { id: 'spectrogram',     type: 'spectrogram',     x: 0, y: 10, w: 6,  h: 9 },
+  { id: 'spectrum',        type: 'spectrum',        x: 6, y: 10, w: 6,  h: 9 },
+  { id: 'psd',             type: 'psd',             x: 0, y: 19, w: 6,  h: 9 },
+  { id: 'ppsd',            type: 'ppsd',            x: 6, y: 19, w: 6,  h: 9 },
+  { id: 'sta-lta',         type: 'sta-lta',         x: 0, y: 28, w: 6,  h: 9 },
+  { id: 'rsam',            type: 'rsam',            x: 6, y: 28, w: 6,  h: 9 },
+  { id: 'raw-scope',       type: 'raw-scope',       x: 0, y: 37, w: 6,  h: 9 },
+  { id: 'three-comp',      type: 'three-comp',      x: 6, y: 37, w: 6,  h: 9 },
+  { id: 'particle-motion', type: 'particle-motion', x: 0, y: 46, w: 6,  h: 9 },
+  { id: 'hv',              type: 'hv',              x: 6, y: 46, w: 6,  h: 9 },
 ];
 
 function uid(prefix: string): string {
@@ -82,12 +92,27 @@ function num(v: unknown, fallback: number): number {
   return Number.isFinite(n) ? n : fallback;
 }
 
+/** Old layouts used a 24-column grid (drum w24, pairs w12). The grid is
+ *  now 12 columns, so scale any dashboard whose widgets exceed 12 columns
+ *  down by half. Idempotent: once scaled, x+w ≤ 12 and it won't re-trigger. */
+function migrate24to12(s: Store): Store {
+  for (const d of Object.values(s.dashboards || {})) {
+    const looks24 = (d.widgets || []).some((w) => w.x + w.w > 12);
+    if (!looks24) continue;
+    for (const w of d.widgets) {
+      w.x = Math.round(w.x / 2);
+      w.w = Math.max(1, Math.round(w.w / 2));
+    }
+  }
+  return s;
+}
+
 function loadStore(): Store {
   try {
     const raw = localStorage.getItem(STORE_KEY);
     if (raw) {
       const s = JSON.parse(raw) as Store;
-      if (s?.dashboards && s.current && s.dashboards[s.current]) return s;
+      if (s?.dashboards && s.current && s.dashboards[s.current]) return migrate24to12(s);
     }
   } catch { /* fall through */ }
   // Migrate the old single-layout key, if present.
@@ -113,15 +138,19 @@ export function mountDashboard(
   root.className = 'grid-stack';
   parent.appendChild(root);
 
+  // 12-column grid (gridstack ships CSS only for ≤12 columns; 24 needs an
+  // extra stylesheet and silently fell back to 12). Default panels are
+  // w:6 → two per row; the drum is w:12 → full row. Collapses to a single
+  // stacked column on phones.
   const gs = GridStack.init({
-    column: 24, cellHeight: 30, margin: 6,
+    cellHeight: 30, margin: 6,
     handle: '.panel-header',
     draggable: { handle: '.panel-header', appendTo: 'body' },
     resizable: { handles: 'all' },
     float: false, animate: false,
     columnOpts: {
       breakpointForWindow: true,
-      breakpoints: [{ w: 700, c: 1 }, { w: 1100, c: 12 }],
+      breakpoints: [{ w: 720, c: 1 }],
     },
   }, root);
 
@@ -325,8 +354,8 @@ export function mountDashboard(
     const id = panelType === MARKDOWN_TYPE ? uid('md') : panelType;
     const w: Widget = {
       id, type: panelType, x: 0, y: 1000, // gridstack drops it at the bottom
-      w: panelType === MARKDOWN_TYPE ? 8 : 12,
-      h: panelType === MARKDOWN_TYPE ? 6 : 8,
+      w: 6,  // half of the 12-column grid
+      h: panelType === MARKDOWN_TYPE ? 6 : 9,
       ...(panelType === MARKDOWN_TYPE ? { content: '' } : {}),
     };
     cur().widgets.push(w);
@@ -431,7 +460,7 @@ export function mountDashboard(
         const id = type === MARKDOWN_TYPE ? uid('md') : type;
         widgets.push({
           id, type,
-          x: num(w.x, 0), y: num(w.y, 1000), w: num(w.w, 12), h: num(w.h, 8),
+          x: num(w.x, 0), y: num(w.y, 1000), w: num(w.w, 6), h: num(w.h, 9),
           ...(type === MARKDOWN_TYPE ? { content: typeof w.content === 'string' ? w.content : '' } : {}),
         });
       }
