@@ -39,17 +39,49 @@ export function mountApp(root: HTMLElement, version: string): void {
   // ── State + transport ───────────────────────────────────────────────
   let currentStation = DEFAULT_STATION;
   let currentEventId: string | null = null;
+  let firstFrameAt: number | null = null;
+  const subscribedAt = Date.now();
 
   const client = new TremiomClient({
     onStatus(s) {
       const el = document.getElementById('conn');
-      if (el) el.textContent = s;
+      if (!el) return;
+      // Decorate with first-frame status so the user knows the
+      // expected ~10-20 s SeedLink handshake is in progress.
+      if (firstFrameAt === null && s === 'connected') {
+        const elapsed = ((Date.now() - subscribedAt) / 1000).toFixed(0);
+        el.textContent = `connected · waiting for first sample (${elapsed}s)`;
+      } else {
+        el.textContent = s;
+      }
     },
     onPanelFrame(panelId, frame) {
       if ((frame as { station?: string }).station !== currentStation) return;
+      if (firstFrameAt === null) {
+        firstFrameAt = Date.now();
+        const el = document.getElementById('conn');
+        if (el) {
+          const latency = ((firstFrameAt - subscribedAt) / 1000).toFixed(1);
+          el.textContent = `live · first frame at +${latency}s`;
+        }
+      }
       renderers.get(panelId)?.draw(frame);
     },
   });
+
+  // Refresh the "waiting for first sample" counter once a second.
+  const connTicker = window.setInterval(() => {
+    if (firstFrameAt !== null) return;
+    const el = document.getElementById('conn');
+    if (el && el.textContent?.startsWith('connected · waiting')) {
+      const elapsed = ((Date.now() - subscribedAt) / 1000).toFixed(0);
+      el.textContent = `connected · waiting for first sample (${elapsed}s)`;
+    }
+  }, 1000);
+  // Stop the ticker once we have a frame.
+  window.setTimeout(() => {
+    if (firstFrameAt !== null) window.clearInterval(connTicker);
+  }, 60_000);
 
   // ── Sidebar (event list) ────────────────────────────────────────────
   const sidebarHost = document.createElement('div');
@@ -112,9 +144,24 @@ export function mountApp(root: HTMLElement, version: string): void {
     resetSpectrogram();
     for (const r of renderers.values()) r.clear();
     currentStation = next;
+    firstFrameAt = null;
+    const subAt = Date.now();
+    // Re-show the "waiting for first sample" status for the new station.
+    const el = document.getElementById('conn');
+    if (el) el.textContent = `connected · waiting for first sample (0s)`;
     worldMap.setActiveStation(next);
     picker.setStation(next);
     client.subscribe(currentStation, INITIAL_PANELS);
+    // Local first-frame timer for the new station.
+    const subTimer = window.setInterval(() => {
+      if (firstFrameAt !== null) { window.clearInterval(subTimer); return; }
+      const conn = document.getElementById('conn');
+      if (conn) {
+        const elapsed = ((Date.now() - subAt) / 1000).toFixed(0);
+        conn.textContent = `connected · waiting for first sample (${elapsed}s)`;
+      }
+    }, 1000);
+    window.setTimeout(() => window.clearInterval(subTimer), 60_000);
   }
 
   const worldMap = mountWorldMap(mapHost, {

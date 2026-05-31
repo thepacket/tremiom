@@ -226,10 +226,13 @@ export function mountRecordSection(parent: HTMLElement): RecordSectionHandle {
       if (myToken !== token || currentEvent?.id !== e.id) return; // superseded
       waveforms = w;
       if (!w.stations.length) {
-        setStatus(`no waveforms returned${(w.errors?.length) ? ` (${w.errors.length} errors)` : ''}`,
+        const detail = w.errors?.length
+          ? `\n${w.errors.map(e => `  ${e.nslc}: ${e.error}`).join('\n')}`
+          : '';
+        setStatus(`no waveforms returned (${w.errors?.length ?? 0} errors)${detail}`,
                   'error');
       } else if (w.errors?.length) {
-        setStatus(`${w.stations.length} stations OK, ${w.errors.length} failed`, 'info');
+        setStatus(`${w.stations.length} stations OK · ${w.errors.length} unavailable`, 'info');
       } else {
         setStatus(null);
       }

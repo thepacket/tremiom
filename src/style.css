@@ -32,8 +32,22 @@ html, body, #app {
   position: relative;
 }
 
-.world-map { width: 100%; height: 100%; }
+.world-map { width: 100%; height: 100%; position: relative; }
 .world-map canvas { display: block; width: 100%; height: 100%; cursor: crosshair; }
+.map-tooltip {
+  position: absolute;
+  display: none;
+  background: rgba(13, 13, 13, 0.92);
+  border: 1px solid var(--panel-border);
+  border-radius: 3px;
+  padding: 4px 8px;
+  font-size: 11px;
+  color: var(--fg);
+  pointer-events: none;
+  max-width: 260px;
+  z-index: 2;
+}
+.map-tooltip .muted { color: var(--muted); }
 
 .body {
   display: grid;
@@ -152,7 +166,7 @@ html, body, #app {
   border-radius: 3px;
   padding: 3px 8px;
 }
-.rs-status.error { color: #ff8a80; border-color: #c0392b; }
+.rs-status.error { color: #ff8a80; border-color: #c0392b; white-space: pre; }
 
 .event .mag {
   font-weight: 600;

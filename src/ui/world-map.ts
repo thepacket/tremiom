@@ -53,6 +53,9 @@ export function mountWorldMap(
   el.className = 'world-map';
   const canvas = document.createElement('canvas');
   el.appendChild(canvas);
+  const tooltip = document.createElement('div');
+  tooltip.className = 'map-tooltip';
+  el.appendChild(tooltip);
   parent.appendChild(el);
 
   const ctx = canvas.getContext('2d')!;
@@ -200,29 +203,65 @@ export function mountWorldMap(
     drawEvents();
   }
 
-  canvas.addEventListener('click', (ev) => {
-    const rect = canvas.getBoundingClientRect();
-    const cx = ev.clientX - rect.left;
-    const cy = ev.clientY - rect.top;
-    // Events first (drawn on top, more interesting); stations second.
+  function hitAt(cx: number, cy: number): HitTarget | null {
     let best: HitTarget | null = null;
     let bestDist = Infinity;
     for (const h of hitTargets) {
       const dx = h.x - cx, dy = h.y - cy;
       const d = Math.hypot(dx, dy);
       if (d <= h.r && d < bestDist) {
-        // Prefer events over coincident station markers — events tend to be
-        // the headline action, and a station can still be selected via the
-        // dropdown if buried under a cluster.
         if (!best || (h.kind === 'event' && best.kind !== 'event')) {
           best = h; bestDist = d;
         }
       }
     }
+    return best;
+  }
+
+  canvas.addEventListener('mousemove', (ev) => {
+    const rect = canvas.getBoundingClientRect();
+    const cx = ev.clientX - rect.left;
+    const cy = ev.clientY - rect.top;
+    const h = hitAt(cx, cy);
+    if (!h) { tooltip.style.display = 'none'; canvas.style.cursor = 'crosshair'; return; }
+    canvas.style.cursor = 'pointer';
+    if (h.kind === 'event') {
+      const e = h.payload as SeismicEvent;
+      const m = e.mag == null ? '—' : `M${e.mag.toFixed(1)}`;
+      tooltip.innerHTML = `<b>${m}</b> · ${escapeHtml(e.place)}<br><span class="muted">${e.depthKm.toFixed(0)} km depth</span>`;
+    } else {
+      tooltip.textContent = h.payload as string;
+    }
+    tooltip.style.display = 'block';
+    // Position near the cursor, clamped to map bounds.
+    const tw = tooltip.offsetWidth, th = tooltip.offsetHeight;
+    let tx = cx + 12, ty = cy + 12;
+    if (tx + tw > cssW) tx = cx - tw - 12;
+    if (ty + th > cssH) ty = cy - th - 12;
+    tooltip.style.left = `${tx}px`;
+    tooltip.style.top  = `${ty}px`;
+  });
+
+  canvas.addEventListener('mouseleave', () => {
+    tooltip.style.display = 'none';
+    canvas.style.cursor = 'crosshair';
+  });
+
+  canvas.addEventListener('click', (ev) => {
+    const rect = canvas.getBoundingClientRect();
+    const cx = ev.clientX - rect.left;
+    const cy = ev.clientY - rect.top;
+    const best = hitAt(cx, cy);
     if (!best) return;
     if (best.kind === 'event') handlers.onEventPicked(best.payload as SeismicEvent);
     else handlers.onStationPicked(best.payload as string);
   });
+
+  function escapeHtml(s: string): string {
+    return s.replace(/[&<>"']/g, (ch) => ({
+      '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;',
+    } as Record<string, string>)[ch]);
+  }
 
   return {
     setEvents(next) { events = next; draw(); },
