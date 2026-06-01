@@ -44,7 +44,7 @@ def fail(msg, **extra):
 def fdsn_client_for(net, FdsnClient):
     if net == "AM":
         return FdsnClient("https://data.raspberryshake.org", timeout=60)
-    return FdsnClient("IRIS", timeout=60)
+    return FdsnClient("EARTHSCOPE", timeout=60)
 
 
 _WA_PAZ = {"poles": [-6.283 - 4.7124j, -6.283 + 4.7124j],

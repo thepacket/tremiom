@@ -77,7 +77,7 @@ def main():
     t0, t1 = origin + float(win[0]), origin + float(win[1])
 
     chosen = sorted(STATIONS, key=lambda s: gc_km(lat, lon, s["lat"], s["lon"]))[:n_stations]
-    fdsn = FdsnClient("IRIS", timeout=60)
+    fdsn = FdsnClient("EARTHSCOPE", timeout=60)
     out = Stream()
     for s in chosen:
         net, sta, loc, cha = s["nslc"].split(".")

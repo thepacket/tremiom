@@ -1039,7 +1039,7 @@ def fetch_inventory(nslc: str):
         cha = nslc.split(".")[3] if len(nslc.split(".")) >= 4 else "BH?"
         band_inst = (cha[:2] + "?") if len(cha) >= 2 else "BH?"
         now = UTCDateTime()
-        client = FdsnClient("IRIS", timeout=30)
+        client = FdsnClient("EARTHSCOPE", timeout=30)
         inv = client.get_stations(network=net, station=sta,
                                   channel=band_inst, starttime=now,
                                   level="response")
@@ -1179,7 +1179,7 @@ def _backfill_one(nslc: str) -> None:
     t_start = UTCDateTime(now - 24 * 3600)
     log(f"backfill[{nslc}]: fetching {t_start} → {t_end}")
     try:
-        client = FdsnClient("IRIS", timeout=60)
+        client = FdsnClient("EARTHSCOPE", timeout=60)
         st = client.get_waveforms(
             network=net, station=sta, location=loc, channel=cha,
             starttime=t_start, endtime=t_end,

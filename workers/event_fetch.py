@@ -149,7 +149,7 @@ def main() -> None:
     else:
         taup_err = None
 
-    fdsn = FdsnClient("IRIS", timeout=30)
+    fdsn = FdsnClient("EARTHSCOPE", timeout=30)
 
     out_stations = []
     errors = []

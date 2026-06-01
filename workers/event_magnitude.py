@@ -142,7 +142,7 @@ def main():
         print(json.dumps({"error": f"obspy missing: {e!r}"})); return
 
     origin = UTCDateTime(time_ms / 1000.0)
-    fdsn = FdsnClient("IRIS", timeout=60)
+    fdsn = FdsnClient("EARTHSCOPE", timeout=60)
     # Local magnitude is meaningful at local/regional distance; restrict
     # to stations within ~10° (~1100 km). Beyond that ML isn't valid.
     cand = []
