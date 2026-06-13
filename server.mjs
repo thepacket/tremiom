@@ -347,6 +347,18 @@ const MIME = {
 };
 
 // ─── Static server (production only; in dev, Vite serves and proxies WS) ──
+// Cache policy: content-hashed build output (its filename changes when the
+// content does) is immutable and cached forever; everything else — the
+// service worker, the HTML entrypoint, the PWA manifest, icons — is
+// revalidated every load so a new deploy is picked up automatically, without
+// the user having to hard-reload past a stale service worker / HTML.
+function cacheControl(path) {
+  if (path.startsWith('/assets/') || /^\/workbox-[-\w]+\.js$/.test(path)) {
+    return 'public, max-age=31536000, immutable';
+  }
+  return 'no-cache';
+}
+
 function serveStatic(req, res) {
   try {
     const url = (req.url || '/').split('?')[0];
@@ -355,7 +367,10 @@ function serveStatic(req, res) {
     if (!full.startsWith(DIST)) { res.writeHead(403).end(); return; }
     const st = statSync(full);
     if (!st.isFile()) { res.writeHead(404).end(); return; }
-    res.writeHead(200, { 'content-type': MIME[extname(full)] || 'application/octet-stream' });
+    res.writeHead(200, {
+      'content-type': MIME[extname(full)] || 'application/octet-stream',
+      'cache-control': cacheControl(path),
+    });
     createReadStream(full).pipe(res);
   } catch {
     res.writeHead(404).end();
