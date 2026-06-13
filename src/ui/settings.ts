@@ -6,6 +6,8 @@
  *  there's nothing to sign out from.
  */
 
+import { APP_VERSION } from '../version';
+
 interface AuthStatus {
   required: boolean;
   authenticated: boolean;
@@ -21,8 +23,6 @@ interface SeedlinkConfigResponse {
   builtinDefaults: SeedlinkUpstreams;
 }
 
-declare const __APP_VERSION__: string;
-
 export function openSettings(): void {
   const backdrop = document.createElement('div');
   backdrop.className = 'modal-backdrop';
@@ -35,7 +35,7 @@ export function openSettings(): void {
       <section class="settings-body">
         <div class="setting-row">
           <div class="setting-label">Version</div>
-          <div class="setting-value" id="set-version">${__APP_VERSION__}</div>
+          <div class="setting-value" id="set-version">${APP_VERSION}</div>
         </div>
         <div class="setting-row">
           <div class="setting-label">Access token</div>

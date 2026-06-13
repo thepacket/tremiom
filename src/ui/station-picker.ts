@@ -22,6 +22,7 @@ export function mountStationPicker(
 
   const select = document.createElement('select');
   select.className = 'station-select';
+  select.title = 'Pick a curated GSN station';
   select.innerHTML = STATION_PRESETS.map(
     (s) => `<option value="${s.nslc}">${s.label}</option>`
   ).join('') + '<option value="__custom__">— custom NSLC —</option>';
@@ -31,10 +32,10 @@ export function mountStationPicker(
   input.type = 'text';
   input.className = 'station-input';
   input.placeholder = 'NET.STA.LOC.CHA';
+  input.title = 'Type any station as NET.STA.LOC.CHA (e.g. IU.ANMO.00.BHZ)';
   input.size = 18;
   input.spellcheck = false;
   input.autocapitalize = 'characters';
-  wrap.appendChild(input);
 
   const browse = document.createElement('button');
   browse.type = 'button';
@@ -55,6 +56,7 @@ export function mountStationPicker(
     });
   });
   wrap.appendChild(browse);
+  wrap.appendChild(input);
 
   parent.appendChild(wrap);
 

@@ -1,6 +1,7 @@
 /** World map showing live USGS event epicenters and curated station
- *  markers. Equirectangular projection (longitude → x, latitude → y),
- *  no pan/zoom in v0.0.x — fits the whole globe in the viewport.
+ *  markers. Equirectangular projection (longitude → x, latitude → y).
+ *  Drag to pan, wheel to zoom, double-click to reset. The world tiles
+ *  east–west so horizontal panning wraps infinitely.
  *
  *  Click handling routes through the same hooks the sidebar uses, so
  *  the map + sidebar stay in sync (selecting an event in either picks
@@ -73,6 +74,9 @@ export function mountWorldMap(
 
   // View transform: zoom about the canvas centre + pixel pan offset.
   let zoom = 1, panX = 0, panY = 0;
+  // Horizontal offset for the current world copy while tiling the map
+  // east–west for seamless infinite panning (see draw()).
+  let wrapOffset = 0;
 
   // DYFI felt-report polygons (event mode): [{cdi, ring:[[lon,lat]...]}].
   let dyfiPolys: Array<{ cdi: number; ring: number[][] }> = [];
@@ -106,17 +110,9 @@ export function mountWorldMap(
     const x0 = ((lon + 180) / 360) * cssW;
     const y0 = ((LAT_MAX - lat) / (LAT_MAX - LAT_MIN)) * cssH;
     return [
-      (x0 - cssW / 2) * zoom + cssW / 2 + panX,
+      (x0 - cssW / 2) * zoom + cssW / 2 + panX + wrapOffset,
       (y0 - cssH / 2) * zoom + cssH / 2 + panY,
     ];
-  }
-
-  /** Clamp pan so at least the map stays partly in view. */
-  function clampPan() {
-    const maxX = (cssW * zoom - cssW) / 2 + cssW * 0.5;
-    const maxY = (cssH * zoom - cssH) / 2 + cssH * 0.5;
-    panX = Math.max(-maxX, Math.min(maxX, panX));
-    panY = Math.max(-maxY, Math.min(maxY, panY));
   }
 
   function drawGraticule() {
@@ -239,12 +235,23 @@ export function mountWorldMap(
     hitTargets.length = 0;
     ctx.fillStyle = COLOR_BG;
     ctx.fillRect(0, 0, cssW, cssH);
-    drawGraticule();
-    drawCoastlines();
-    drawShakemap();
-    drawDyfi();
-    drawStations();
-    drawEvents();
+    // Tile the world east–west so panning wraps seamlessly: draw every copy
+    // whose horizontal span overlaps the viewport. One world is cssW*zoom px
+    // wide; `base` is the screen-x of copy 0's left edge.
+    const worldW = cssW * zoom;
+    const base = cssW * (1 - zoom) / 2 + panX;
+    const mStart = Math.floor((-base) / worldW) - 1;
+    const mEnd   = Math.ceil((cssW - base) / worldW) + 1;
+    for (let m = mStart; m <= mEnd; m++) {
+      wrapOffset = m * worldW;
+      drawGraticule();
+      drawCoastlines();
+      drawShakemap();
+      drawDyfi();
+      drawStations();
+      drawEvents();
+    }
+    wrapOffset = 0;
   }
 
   function drawShakemap() {
@@ -295,20 +302,21 @@ export function mountWorldMap(
   }
 
   // ── Pan / zoom ──────────────────────────────────────────────────────
+  // The map is fixed vertically: only horizontal panning (which wraps) and
+  // zoom are allowed. panY stays 0 throughout.
   let dragging = false, dragMoved = false, dragX = 0, dragY = 0;
-  let panX0 = 0, panY0 = 0;
+  let panX0 = 0;
 
   canvas.addEventListener('mousedown', (ev) => {
     dragging = true; dragMoved = false;
     dragX = ev.clientX; dragY = ev.clientY;
-    panX0 = panX; panY0 = panY;
+    panX0 = panX;
   });
   window.addEventListener('mousemove', (ev) => {
     if (!dragging) return;
     const dx = ev.clientX - dragX, dy = ev.clientY - dragY;
     if (Math.abs(dx) + Math.abs(dy) > 3) dragMoved = true;
-    panX = panX0 + dx; panY = panY0 + dy;
-    clampPan();
+    panX = panX0 + dx; // horizontal only — vertical position is fixed
     canvas.style.cursor = 'grabbing';
     tooltip.style.display = 'none';
     draw();
@@ -319,17 +327,14 @@ export function mountWorldMap(
   canvas.addEventListener('wheel', (ev) => {
     ev.preventDefault();
     const rect = canvas.getBoundingClientRect();
-    const cx = ev.clientX - rect.left, cy = ev.clientY - rect.top;
+    const cx = ev.clientX - rect.left;
     const factor = ev.deltaY > 0 ? 1 / 1.2 : 1.2;
     const newZoom = Math.max(1, Math.min(10, zoom * factor));
-    // Keep the geographic point under the cursor fixed: adjust pan so
-    // the projected cursor position is invariant under the zoom change.
+    // Keep the geographic point under the cursor horizontally fixed; the
+    // map zooms about its vertical centre (panY stays 0).
     const k = newZoom / zoom;
     panX = cx - k * (cx - panX);
-    panY = cy - k * (cy - panY);
     zoom = newZoom;
-    if (zoom === 1) { panX = 0; panY = 0; }
-    clampPan();
     draw();
   }, { passive: false });
   canvas.addEventListener('dblclick', () => {

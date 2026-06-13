@@ -1,9 +1,9 @@
 import type { DashboardHandle } from './dashboard';
 
 /** Topbar dashboard controls: a selector listing all dashboards (one
- *  shown at a time), plus new / rename / delete, an "+ Notes" button to
- *  add an editable markdown panel, and "⤓ PDF" to print the current
- *  dashboard. */
+ *  shown at a time), plus new / rename / delete, JSON export/import, and
+ *  "⤓ PDF" to print the current dashboard. (The Notes markdown panel is
+ *  added from the PANELS picker.) */
 export function mountDashboardBar(parent: HTMLElement, dash: DashboardHandle): void {
   const wrap = document.createElement('span');
   wrap.className = 'dashboard-bar';
@@ -11,9 +11,8 @@ export function mountDashboardBar(parent: HTMLElement, dash: DashboardHandle): v
     <select class="dash-select" title="Dashboard"></select>
     <button class="dash-btn" data-act="new"    title="New dashboard">+</button>
     <button class="dash-btn" data-act="rename" title="Rename dashboard">✎</button>
-    <button class="dash-btn" data-act="delete" title="Delete dashboard">🗑</button>
-    <button class="dash-btn" data-act="notes"  title="Add a markdown notes panel">+ Notes</button>
-    <button class="dash-btn" data-act="export" title="Export dashboard as JSON">⤓ JSON</button>
+    <button class="dash-btn" data-act="delete" title="Delete dashboard">−</button>
+    <button class="dash-btn" data-act="export" title="Export dashboard as JSON">⤓ Export</button>
     <button class="dash-btn" data-act="import" title="Import dashboard from JSON">⤒ Import</button>
     <button class="dash-btn" data-act="pdf"    title="Print dashboard to PDF">⤓ PDF</button>
   `;
@@ -65,8 +64,6 @@ export function mountDashboardBar(parent: HTMLElement, dash: DashboardHandle): v
         if (confirm(`Delete dashboard "${curName}"? This cannot be undone.`)) {
           dash.deleteDashboard(dash.currentId()); refresh();
         }
-      } else if (act === 'notes') {
-        dash.addPanel('markdown');
       } else if (act === 'export') {
         dash.exportDashboard();
       } else if (act === 'import') {

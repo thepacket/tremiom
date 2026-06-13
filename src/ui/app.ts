@@ -14,6 +14,8 @@ import { mountRecordSection } from './record-section';
 import { mountHistoryView } from './history-view';
 import { openSettings } from './settings';
 import { openHelp } from './help';
+import { openAbout } from './about';
+import { initTooltips } from './tooltip';
 import { mountDashboard, type DashboardHandle } from './dashboard';
 import { mountDashboardBar } from './dashboard-bar';
 import { mountPanelPicker } from './panel-picker';
@@ -33,25 +35,32 @@ export function mountApp(root: HTMLElement, version: string): void {
     <div class="topbar-row">
       <span class="brand">Tremiom</span>
       <span class="muted">v${version}</span>
-      <span class="muted">station:</span>
+      <span class="topbar-label">Station</span>
       <span id="picker-mount"></span>
-      <span class="muted">filter:</span>
+      <span class="topbar-label">Filter</span>
       <span id="filter-mount"></span>
-      <span class="muted">units:</span>
+      <span class="topbar-label">Units</span>
       <span id="units-mount"></span>
       <span class="topbar-spacer"></span>
       <span class="muted" id="conn">connecting…</span>
       <button class="settings-btn" id="help-btn" title="Help" aria-label="Help">?</button>
+      <button class="settings-btn" id="about-btn" title="About" aria-label="About">ⓘ</button>
       <button class="settings-btn" id="settings-btn" title="Settings" aria-label="Settings">⚙</button>
     </div>
     <div class="topbar-row">
       <span id="panel-picker-mount"></span>
+      <span class="topbar-label">Dashboard</span>
       <span id="dashboard-bar-mount"></span>
       <button class="pin-btn" id="pin-btn" title="Pin current trace to the Wave clipboard">📌 Pin</button>
+      <span class="topbar-label">Alerts</span>
       <span id="alert-picker-mount"></span>
-      <span class="topbar-spacer"></span>
-      <button class="hist-btn" id="hist-btn" title="Browse arbitrary time windows">🕓 History</button>
-      <button class="live-btn hidden" id="live-btn" title="Return to live mode">← Live</button>
+      <span class="topbar-label">Mode</span>
+      <button class="hist-btn" id="hist-btn" title="Browse arbitrary time windows">History</button>
+      <button class="live-btn hidden" id="live-btn" title="Return to live mode">Live</button>
+      <span class="utc-clock-box">
+        <span class="topbar-label">UTC</span>
+        <span class="topbar-clock" id="utc-clock" title="Current UTC time"></span>
+      </span>
     </div>
   `;
   root.appendChild(topbar);
@@ -60,6 +69,17 @@ export function mountApp(root: HTMLElement, version: string): void {
   const mapHost = document.createElement('div');
   mapHost.className = 'map-host';
   root.appendChild(mapHost);
+
+  // Restore a previously dragged map height before first layout.
+  const savedMapH = localStorage.getItem('tremiom-map-h');
+  if (savedMapH) document.documentElement.style.setProperty('--map-h', savedMapH);
+
+  // ── Map resize splitter (drag to change the map height) ─────────────
+  const splitter = document.createElement('div');
+  splitter.className = 'map-splitter';
+  splitter.title = 'Drag to resize the map';
+  root.appendChild(splitter);
+  mountMapSplitter(splitter, mapHost);
 
   // ── Body (sidebar + dashboard) ──────────────────────────────────────
   const body = document.createElement('div');
@@ -391,6 +411,9 @@ export function mountApp(root: HTMLElement, version: string): void {
   const dashBarMount = document.getElementById('dashboard-bar-mount')!;
   mountDashboardBar(dashBarMount, dashboard);
 
+  // Place the PANELS button just to the right of the dashboard PDF button.
+  dashBarMount.querySelector('[data-act="pdf"]')!.after(panelPickerMount);
+
   const alertMount = document.getElementById('alert-picker-mount')!;
   mountAlertPicker(alertMount, () => resubscribe());
 
@@ -401,6 +424,23 @@ export function mountApp(root: HTMLElement, version: string): void {
   });
   document.getElementById('settings-btn')?.addEventListener('click', openSettings);
   document.getElementById('help-btn')?.addEventListener('click', () => openHelp());
+  document.getElementById('about-btn')?.addEventListener('click', openAbout);
+
+  initTooltips();
+
+  // Live UTC clock in the topbar.
+  const clockEl = document.getElementById('utc-clock');
+  if (clockEl) {
+    const p = (n: number) => String(n).padStart(2, '0');
+    const tick = () => {
+      const d = new Date();
+      clockEl.textContent =
+        `${d.getUTCFullYear()}-${p(d.getUTCMonth() + 1)}-${p(d.getUTCDate())} ` +
+        `${p(d.getUTCHours())}:${p(d.getUTCMinutes())}:${p(d.getUTCSeconds())}`;
+    };
+    tick();
+    setInterval(tick, 1000);
+  }
 
   document.getElementById('pin-btn')?.addEventListener('click', () => {
     if (!latestRawScope?.data?.length) return;
@@ -422,4 +462,36 @@ export function mountApp(root: HTMLElement, version: string): void {
   void ensureStationCoords(currentStation);
   clientReady = true;
   client.subscribe(currentStation, subscribedPanels());
+}
+
+/** Drag-to-resize the map height. Updates the `--map-h` CSS variable (which
+ *  drives both the map host and the body offset below it) and persists the
+ *  chosen height to localStorage. The map canvas's ResizeObserver redraws. */
+function mountMapSplitter(splitter: HTMLElement, mapHost: HTMLElement): void {
+  const MIN_H = 120;
+  let dragging = false, startY = 0, startH = 0;
+
+  splitter.addEventListener('pointerdown', (e) => {
+    dragging = true;
+    startY = e.clientY;
+    startH = mapHost.getBoundingClientRect().height;
+    splitter.setPointerCapture(e.pointerId);
+    document.body.style.userSelect = 'none';
+  });
+  splitter.addEventListener('pointermove', (e) => {
+    if (!dragging) return;
+    const maxH = window.innerHeight - 160;
+    const h = Math.max(MIN_H, Math.min(maxH, startH + (e.clientY - startY)));
+    document.documentElement.style.setProperty('--map-h', `${Math.round(h)}px`);
+  });
+  const end = (e: PointerEvent) => {
+    if (!dragging) return;
+    dragging = false;
+    document.body.style.userSelect = '';
+    try { splitter.releasePointerCapture(e.pointerId); } catch { /* not captured */ }
+    const h = getComputedStyle(document.documentElement).getPropertyValue('--map-h').trim();
+    if (h) localStorage.setItem('tremiom-map-h', h);
+  };
+  splitter.addEventListener('pointerup', end);
+  splitter.addEventListener('pointercancel', end);
 }

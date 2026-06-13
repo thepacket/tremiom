@@ -34,10 +34,31 @@ html, body {
 
 .map-host {
   height: var(--map-h);
-  border-bottom: 1px solid var(--panel-border);
   background: var(--bg);
   position: relative;
 }
+
+/* Drag-to-resize bar below the map (see mountMapSplitter in ui/app.ts). */
+.map-splitter {
+  height: 6px;
+  background: var(--panel-border);
+  cursor: ns-resize;
+  position: relative;
+  touch-action: none;
+}
+.map-splitter::after {
+  content: "";
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  transform: translate(-50%, -50%);
+  width: 36px;
+  height: 2px;
+  border-radius: 1px;
+  background: var(--muted);
+}
+.map-splitter:hover { background: var(--accent); }
+.map-splitter:hover::after { background: #fff; }
 
 .world-map { width: 100%; height: 100%; position: relative; }
 .world-map canvas { display: block; width: 100%; height: 100%; cursor: crosshair; }
@@ -134,15 +155,15 @@ html, body {
 
 .live-btn {
   background: #1a1a1a;
-  color: var(--accent);
-  border: 1px solid var(--accent);
+  color: var(--fg);
+  border: 1px solid var(--panel-border);
   border-radius: 3px;
   padding: 2px 10px;
   font: inherit;
   font-size: 12px;
   cursor: pointer;
 }
-.live-btn:hover { background: #2a1d10; }
+.live-btn:hover { border-color: var(--accent); color: var(--accent); }
 
 .settings-btn {
   margin-left: 8px;
@@ -462,9 +483,29 @@ html, body {
 }
 .topbar-row:first-child { border-bottom: 1px solid #1a1a1a; }
 .topbar-spacer { flex: 1; }
+.utc-clock-box {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  white-space: nowrap;
+  flex: none;
+}
+.topbar-clock {
+  color: var(--fg);
+  font-family: ui-monospace, monospace;
+  font-size: 12px;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
 
 .topbar .brand { font-weight: 600; color: var(--accent); }
 .topbar .muted { color: var(--muted); }
+.topbar-label {
+  color: var(--accent);
+  text-transform: uppercase;
+  font-size: 11px;
+  letter-spacing: 0.5px;
+}
 
 /* ── gridstack-based dashboard ───────────────────────────────────────── */
 .dash-host { padding: 6px; }
@@ -644,6 +685,17 @@ html, body {
   transition: box-shadow 0.3s, border-color 0.3s;
 }
 
+/* ── About modal ────────────────────────────────────────────────────── */
+.modal.about { width: min(440px, 92vw); max-height: none; display: flex; flex-direction: column; }
+.about-body { padding: 22px; text-align: center; font-size: 13px; line-height: 1.6; overflow-y: auto; }
+.about-logo { display: block; width: 84px; height: 84px; margin: 0 auto 12px; border-radius: 12px; }
+.about-name { font-size: 24px; font-weight: 600; letter-spacing: 0.5px; }
+.about-version { color: var(--muted); font-family: ui-monospace, monospace; font-size: 11px; margin-top: 2px; }
+.about-body p { margin: 12px 0 0; text-align: left; }
+.about-body p.muted { text-align: center; margin: 6px 0 0; }
+.about-body a { color: var(--accent); }
+.about-body hr { border: none; border-top: 1px solid var(--panel-border); margin: 16px 0; }
+
 /* ── Dashboard selector bar ─────────────────────────────────────────── */
 .dashboard-bar { display: inline-flex; align-items: center; gap: 4px; }
 .dash-select {
@@ -662,6 +714,7 @@ html, body {
 @media print {
   body.printing-dashboard .topbar,
   body.printing-dashboard .map-host,
+  body.printing-dashboard .map-splitter,
   body.printing-dashboard .sidebar-host,
   body.printing-dashboard .event-host,
   body.printing-dashboard .history-host,
@@ -707,7 +760,7 @@ html, body {
 .panel-picker-wrap { position: relative; display: inline-flex; }
 .panel-picker-btn {
   background: #1a1a1a;
-  color: var(--fg);
+  color: var(--accent);
   border: 1px solid var(--panel-border);
   border-radius: 3px;
   padding: 2px 10px;
@@ -742,7 +795,7 @@ html, body {
 .panel-picker-list { padding: 4px; max-height: 60vh; overflow-y: auto; }
 .panel-picker-row {
   display: grid;
-  grid-template-columns: 22px 1fr auto;
+  grid-template-columns: 1fr auto;
   gap: 8px;
   width: 100%;
   align-items: center;
@@ -758,7 +811,6 @@ html, body {
 }
 .panel-picker-row:hover  { background: #1a1a1a; }
 .panel-picker-row.on     { color: var(--accent); }
-.panel-picker-row .check { color: var(--accent); text-align: center; }
 .panel-picker-row .label { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .panel-picker-row .small { font-size: 10px; color: var(--muted); }
 .panel-picker-pop footer {
@@ -874,6 +926,25 @@ html, body {
   max-width: 90vw;
 }
 .alert-banner.show { transform: translateX(-50%) translateY(0); }
+
+/* ── Custom tooltips (500 ms delay, see ui/tooltip.ts) ───────────────── */
+.tooltip {
+  position: fixed;
+  z-index: 1000;
+  max-width: 280px;
+  padding: 4px 8px;
+  background: #000;
+  color: var(--fg);
+  border: 1px solid var(--panel-border);
+  border-radius: 4px;
+  font-size: 11px;
+  line-height: 1.4;
+  pointer-events: none;
+  opacity: 0;
+  visibility: hidden;
+  transition: opacity 0.12s ease;
+}
+.tooltip.show { opacity: 1; visibility: visible; }
 
 .modal-backdrop {
   position: fixed;

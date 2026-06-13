@@ -16,7 +16,7 @@ export function mountPanelPicker(parent: HTMLElement, opts: PanelPickerOpts): vo
   const wrap = document.createElement('span');
   wrap.className = 'panel-picker-wrap';
   wrap.innerHTML = `
-    <button class="panel-picker-btn" title="Add or remove panels">+ Panel</button>
+    <button class="panel-picker-btn" title="Add or remove panels">PANELS</button>
   `;
   parent.appendChild(wrap);
 
@@ -35,16 +35,19 @@ export function mountPanelPicker(parent: HTMLElement, opts: PanelPickerOpts): vo
   }
   function render() {
     if (!pop) return;
-    const ids = Object.keys(panelRegistry).sort();
+    // Registry (streaming) panels, plus the multi-instance Notes panel —
+    // each Notes click adds a fresh markdown panel (it's never "active").
+    const entries = [
+      ...Object.keys(panelRegistry).sort().map((id) => ({ id, label: panelRegistry[id].label })),
+      { id: 'markdown', label: 'Note' },
+    ];
     pop.innerHTML = `
       <div class="panel-picker-list">
-        ${ids.map((id) => {
-          const p = panelRegistry[id];
+        ${entries.map(({ id, label }) => {
           const on = opts.isActive(id);
           return `
             <button class="panel-picker-row${on ? ' on' : ''}" data-id="${id}">
-              <span class="check">${on ? '✓' : ''}</span>
-              <span class="label">${escapeHtml(p.label)}</span>
+              <span class="label">${escapeHtml(label)}</span>
               <span class="muted small">${escapeHtml(id)}</span>
             </button>`;
         }).join('')}

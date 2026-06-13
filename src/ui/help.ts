@@ -1,10 +1,13 @@
 /** Integrated help overlay — educational reference. A ? topbar button (or
- *  the ? on any panel header) opens it. Covers what Tremiom is, the three
- *  modes, every topbar control, and a teaching entry for every panel
- *  (what it is + the physics, how to read it, how to use it), plus event
- *  workflow and interaction tips. Content lives here, in one place. */
+ *  the ? on any panel header) opens it. Organized into three sections,
+ *  mirroring the sibling Quantiom app's docs:
+ *    • Introduction  — what Tremiom is, the three modes, the topbar controls.
+ *    • Tutorial      — a hands-on, numbered getting-started walkthrough.
+ *    • Panel Reference — a teaching entry for every panel (what it is + the
+ *      physics, how to read it, how to use it).
+ *  Content lives here, in one place. */
 
-declare const __APP_VERSION__: string;
+import { APP_VERSION } from '../version';
 
 /** Per-panel teaching content. Keyed by panel registry id (+ "markdown"). */
 interface PanelHelp { id: string; title: string; what: string; read: string; use: string; }
@@ -179,9 +182,10 @@ export const PANEL_HELP: PanelHelp[] = [
       against a quiet reference window.`,
   },
   {
-    id: 'markdown', title: 'Notes (markdown)',
+    id: 'markdown', title: 'Note (markdown)',
     what: `An editable markdown panel for annotations — observations, an event log, a
-      to-do list — saved with the dashboard. Add as many as you like via "+ Notes".`,
+      to-do list — saved with the dashboard. Add as many as you like via the
+      <b>Notes</b> entry in the PANELS picker.`,
     read: `Rendered markdown; click ✎ in its header to edit, click again to render.`,
     use: `Keep context next to the data: note what you were watching, flag an event for
       follow-up, or write a shift handover. Notes travel with the dashboard when you
@@ -193,27 +197,24 @@ interface HelpSection { id: string; title: string; html: string; }
 
 const SECTIONS: HelpSection[] = [
   {
-    id: 'overview', title: 'Overview',
+    id: 'intro', title: 'Introduction',
     html: `
       <p><b>Tremiom</b> is a real-time + historical seismic viewer. It streams
       live waveforms from global broadband stations, runs scientific DSP
       server-side, and lets you browse, analyze, and pick earthquakes — all in
-      the browser.</p>
-      <p>Three modes:</p>
+      the browser, with no install and no account.</p>
+
+      <h3>Three modes</h3>
       <ul>
         <li><b>Live</b> (default) — the configurable dashboard of panels for the
           selected station, updating ~1/s.</li>
         <li><b>Event</b> — click any earthquake in the sidebar or map to open a
           record section of the nearest stations with predicted arrivals.</li>
-        <li><b>History</b> (🕓) — pull any station over any time window and
+        <li><b>History</b> — pull any station over any time window and
           zoom / pan / step through it; also opens local MiniSEED/SAC files.</li>
       </ul>
-      <p class="help-hint">Tip: every panel has a <b>?</b> in its header that jumps
-      straight to its entry in the Panels section below.</p>`,
-  },
-  {
-    id: 'topbar', title: 'Topbar controls',
-    html: `
+
+      <h3>Topbar controls</h3>
       <table class="help-table">
         <tr><td><b>station</b></td><td>Pick a curated GSN station, type any
           <code>NET.STA.LOC.CHA</code>, or <b>Browse…</b> the full FDSN catalog.</td></tr>
@@ -221,20 +222,89 @@ const SECTIONS: HelpSection[] = [
           (1–20 Hz), teleseismic (0.5–2 Hz), microseism, surface waves…</td></tr>
         <tr><td><b>units</b></td><td>Remove the instrument response: counts, velocity
           (m/s), displacement (m), acceleration, or Wood-Anderson (mm).</td></tr>
-        <tr><td><b>+ Panel</b></td><td>Add/remove streaming panels; reset the layout.</td></tr>
+        <tr><td><b>PANELS</b></td><td>Add/remove panels (including <b>Notes</b> markdown);
+          reset the layout.</td></tr>
         <tr><td><b>Dashboard ▾</b></td><td>Switch dashboards. <b>+</b> new, <b>✎</b>
-          rename, <b>🗑</b> delete, <b>+ Notes</b> add markdown, <b>⤓ JSON / ⤒ Import</b>
-          share, <b>⤓ PDF</b> print.</td></tr>
+          rename, <b>−</b> delete, <b>⤓ JSON / ⤒ Import</b> share, <b>⤓ PDF</b> print.</td></tr>
         <tr><td><b>📌 Pin</b></td><td>Snapshot the current trace into the Wave clipboard.</td></tr>
         <tr><td><b>🔔</b></td><td>STA/LTA trigger alerts: toggle + set a threshold;
           fires a notification + banner when crossed.</td></tr>
-        <tr><td><b>🕓 History</b></td><td>Arbitrary-time waveform browser. <b>← Live</b>
+        <tr><td><b>History</b></td><td>Arbitrary-time waveform browser. <b>Live</b>
           returns.</td></tr>
         <tr><td><b>⚙</b></td><td>Settings: instance auth status, sign out.</td></tr>
-      </table>`,
+      </table>
+
+      <p class="help-hint">Tip: every panel has a <b>?</b> in its header that jumps
+      straight to its entry in the Panel Reference section.</p>`,
   },
   {
-    id: 'panels', title: 'Panels',
+    id: 'tutorial', title: 'Tutorial',
+    html: `
+      <p>A hands-on walkthrough. Work through it once with the default
+      dashboard open and you'll know your way around.</p>
+
+      <h3>1 · Pick a station and go live</h3>
+      <p>Use the <b>station</b> picker in the topbar — choose a curated GSN
+      station from the dropdown, or type any <code>NET.STA.LOC.CHA</code> (e.g.
+      <code>IU.ANMO.00.BHZ</code>). The connection badge walks from
+      <i>connecting…</i> to <i>live</i>; the first frame takes ~10–20 s while the
+      SeedLink handshake completes, then the <b>Helicorder</b> backfills the last
+      24 h and every panel starts updating ~1/s.</p>
+
+      <h3>2 · Read the panels</h3>
+      <p>The default dashboard pairs complementary views: the drum for a
+      day-at-a-glance, spectrogram + spectrum for frequency content, PSD/PPSD for
+      noise character, STA/LTA + RSAM for energy, and scope/3-component/particle
+      motion for waveform shape. Click the <b>?</b> on any panel header to jump to
+      its full entry in <b>Panel Reference</b> (what it is, how to read it, how to
+      use it).</p>
+
+      <h3>3 · Filter and change units</h3>
+      <p>Set <b>filter</b> to a band (e.g. <i>local quake 1–20 Hz</i>) and watch
+      the scope and spectrogram sharpen. Set <b>units</b> to <i>velocity (m/s)</i>
+      to remove the instrument response and see real ground motion instead of raw
+      counts.</p>
+
+      <h3>4 · Customize the dashboard</h3>
+      <p>Drag a panel by its <b>header</b> to move it; drag any edge or corner to
+      resize. Use <b>PANELS</b> to add or remove panels — including the <b>Notes</b>
+      markdown scratchpad. Layout autosaves per dashboard. Create more
+      dashboards with the <b>Dashboard ▾</b> menu, and share one via <b>⤓ JSON</b>
+      / <b>⤒ Import</b> or print it with <b>⤓ PDF</b>.</p>
+
+      <h3>5 · Explore an earthquake (Event mode)</h3>
+      <p>Click any event in the sidebar list or on the world map to open the
+      <b>record section</b>: the 6 nearest stations' waveforms stacked by distance,
+      with TauP-predicted <span style="color:#ffd54a">P</span> and
+      <span style="color:#ff8a80">S</span> arrivals, the focal-mechanism beachball,
+      an independent <b>ML</b> + <b>Md</b> estimate, and DYFI felt + ShakeMap
+      overlays on the map.</p>
+      <ul>
+        <li><b>Z / R / T</b> — rotate horizontals to radial/transverse (radial
+          carries P + Rayleigh, transverse carries SH + Love).</li>
+        <li><b>Pick P / Pick S</b> — click a trace to place an arrival;
+          <b>Auto-pick</b> detects P automatically. Picks persist and export to
+          <b>QuakeML</b>.</li>
+        <li><b>Locate</b> — grid-search the hypocenter from your P picks.</li>
+        <li><b>⤓ MiniSEED / CSV / PNG</b> — export the data or the plot.</li>
+      </ul>
+
+      <h3>6 · Browse history and local files</h3>
+      <p>Hit <b>History</b> for an arbitrary-time waveform browser: wheel =
+      zoom at the cursor, drag = pan, <b>◀ ▶</b> step, a duration dropdown, and
+      <b>Now</b> to jump to the latest. <b>📂 Open</b> loads a local MiniSEED/SAC
+      file. <b>Live</b> returns to live mode.</p>
+
+      <h3>7 · Set an alert</h3>
+      <p>Click <b>🔔</b>, enable alerts, and set a threshold. When the STA/LTA
+      ratio crosses it, Tremiom fires a browser notification and an in-app banner —
+      a hands-off watch for arrivals while you do something else.</p>
+
+      <p class="help-hint">Map tip: wheel = zoom, drag = pan, double-click =
+      reset. Every plot panel has a <b>⤓</b> to save it as a PNG.</p>`,
+  },
+  {
+    id: 'panels', title: 'Panel Reference',
     html: PANEL_HELP.map((p) => `
       <div class="help-panel" id="help-panel-${p.id}">
         <h3>${p.title}</h3>
@@ -242,35 +312,6 @@ const SECTIONS: HelpSection[] = [
         <p><span class="help-tag">How to read it</span>${p.read}</p>
         <p><span class="help-tag">How to use it</span>${p.use}</p>
       </div>`).join(''),
-  },
-  {
-    id: 'event', title: 'Event mode',
-    html: `
-      <p>Click an event to open the <b>record section</b>: the 6 nearest stations'
-      waveforms stacked by distance, with TauP-predicted P (yellow) and S (red)
-      arrivals, the focal-mechanism beachball, an independent <b>ML</b> + <b>Md</b>
-      estimate, and DYFI felt + ShakeMap overlays on the map.</p>
-      <ul>
-        <li><b>Z / R / T</b> — rotate horizontals to radial/transverse (radial carries
-          P + Rayleigh, transverse carries SH + Love).</li>
-        <li><b>Pick P / Pick S</b> — click a trace to place an arrival; <b>Auto-pick</b>
-          detects P automatically. Picks persist and export to <b>QuakeML</b>.</li>
-        <li><b>Locate</b> — grid-search the hypocenter from your P picks.</li>
-        <li><b>⤓ MiniSEED / CSV / PNG</b> — export data or plot.</li>
-      </ul>`,
-  },
-  {
-    id: 'tips', title: 'Interaction tips',
-    html: `
-      <ul>
-        <li>Drag a panel by its <b>header</b> to move it; drag any edge/corner to
-          resize. Layout autosaves per dashboard.</li>
-        <li><b>World map</b>: wheel = zoom, drag = pan, double-click = reset.</li>
-        <li><b>History</b>: wheel = zoom (at cursor), drag = pan, ◀ ▶ step, duration
-          dropdown, Now jumps to latest. <b>📂 Open</b> loads a local file.</li>
-        <li>Each plot panel has a <b>⤓</b> to save it as PNG.</li>
-        <li>First live frame takes ~10–20 s (the SeedLink handshake).</li>
-      </ul>`,
   },
 ];
 
@@ -280,7 +321,7 @@ export function openHelp(targetPanelId?: string): void {
   backdrop.innerHTML = `
     <div class="modal help-modal">
       <header>
-        <span class="title">Tremiom help <span class="muted">v${__APP_VERSION__}</span></span>
+        <span class="title">Tremiom help <span class="muted">v${APP_VERSION}</span></span>
         <input class="help-search" type="search" placeholder="Filter help…" />
         <button class="modal-close" title="Close">✕</button>
       </header>

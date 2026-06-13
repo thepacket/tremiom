@@ -2,10 +2,24 @@ import { defineConfig } from 'vite';
 import { VitePWA } from 'vite-plugin-pwa';
 import mkcert from 'vite-plugin-mkcert';
 import { readFileSync } from 'node:fs';
+import { execSync } from 'node:child_process';
 
 const pkgVersion = JSON.parse(
   readFileSync(new URL('./package.json', import.meta.url), 'utf-8')
 ).version as string;
+
+// Quantiom-style auto-incrementing version tail: the git commit count is the
+// "most minor" version segment (bumps on every commit), with the short SHA
+// for an exact build reference. Displayed as v<pkg>.<commits> (<sha>).
+function git(cmd: string, fallback: string): string {
+  try {
+    return execSync(cmd, { stdio: ['ignore', 'pipe', 'ignore'] }).toString().trim();
+  } catch {
+    return fallback;
+  }
+}
+const gitCommits = git('git rev-list --count HEAD', '0');
+const gitSha = git('git rev-parse --short HEAD', 'unknown');
 
 // TREMIOM_HTTP=1 disables HTTPS dev server. Default is HTTPS via mkcert
 // so secure-context APIs and PWA install match production.
@@ -14,6 +28,8 @@ const useHttp = process.env.TREMIOM_HTTP === '1';
 export default defineConfig({
   define: {
     __APP_VERSION__: JSON.stringify(pkgVersion),
+    __GIT_COMMITS__: JSON.stringify(gitCommits),
+    __GIT_SHA__: JSON.stringify(gitSha),
   },
   plugins: [
     ...(useHttp ? [] : [mkcert()]),
