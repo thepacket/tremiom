@@ -1,6 +1,5 @@
 import './style.css';
 import { mountApp } from './ui/app';
+import { APP_VERSION } from './version';
 
-declare const __APP_VERSION__: string;
-
-mountApp(document.getElementById('app')!, __APP_VERSION__);
+mountApp(document.getElementById('app')!, APP_VERSION);

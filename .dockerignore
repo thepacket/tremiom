@@ -7,7 +7,9 @@ workers/.venv
 **/__pycache__
 *.pyc
 
-.git
+# NB: .git is intentionally NOT ignored — the frontend build reads the
+# commit count + short SHA from it to bake into the version label
+# (vite.config.ts / src/version.ts).
 .github
 .claude
 .DS_Store

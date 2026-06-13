@@ -1,12 +1,20 @@
 # ---- 1. Frontend build (Vite + TypeScript) ----
 FROM node:22-alpine AS frontend
 WORKDIR /app
+# git is needed during `vite build` to read the commit count + short SHA
+# into the version label (see vite.config.ts / src/version.ts).
+RUN apk add --no-cache git
 COPY package.json package-lock.json ./
 RUN npm ci
 # Copy only what the build needs (the .dockerignore strips the rest).
 COPY tsconfig.json vite.config.ts index.html ./
 COPY src ./src
 COPY public ./public
+# .git is kept in the build context (see .dockerignore) so the build can
+# read the current commit count + short SHA. Mark it safe so git doesn't
+# refuse over the container's ownership mismatch.
+COPY .git ./.git
+RUN git config --global --add safe.directory /app
 RUN npm run build
 
 # ---- 2. Python wheels (obspy + scipy + numpy) ----
