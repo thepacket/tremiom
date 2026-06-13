@@ -229,8 +229,9 @@ const SECTIONS: HelpSection[] = [
         <tr><td><b>📌 Pin</b></td><td>Snapshot the current trace into the Wave clipboard.</td></tr>
         <tr><td><b>🔔</b></td><td>STA/LTA trigger alerts: toggle + set a threshold;
           fires a notification + banner when crossed.</td></tr>
-        <tr><td><b>History</b></td><td>Arbitrary-time waveform browser. <b>Live</b>
-          returns.</td></tr>
+        <tr><td><b>Mode ▾</b></td><td>Switch between <b>Live</b>, <b>History</b>
+          (arbitrary-time waveform browser), and <b>Event</b> (shown while a
+          record section is open).</td></tr>
         <tr><td><b>⚙</b></td><td>Settings: instance auth status, sign out.</td></tr>
       </table>
 

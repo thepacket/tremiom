@@ -153,17 +153,17 @@ html, body {
 
 .hidden { display: none !important; }
 
-.live-btn {
+.mode-select {
   background: #1a1a1a;
   color: var(--fg);
   border: 1px solid var(--panel-border);
   border-radius: 3px;
-  padding: 2px 10px;
+  padding: 2px 6px;
   font: inherit;
   font-size: 12px;
   cursor: pointer;
 }
-.live-btn:hover { border-color: var(--accent); color: var(--accent); }
+.mode-select:focus { outline: none; border-color: var(--accent); }
 
 .settings-btn {
   margin-left: 8px;
@@ -177,19 +177,6 @@ html, body {
   cursor: pointer;
 }
 .settings-btn:hover { color: var(--fg); border-color: var(--panel-border); }
-
-.hist-btn {
-  background: #1a1a1a;
-  color: var(--fg);
-  border: 1px solid var(--panel-border);
-  border-radius: 3px;
-  padding: 2px 10px;
-  font: inherit;
-  font-size: 12px;
-  cursor: pointer;
-}
-.hist-btn:hover { border-color: var(--accent); color: var(--accent); }
-.hist-btn.hidden { display: none; }
 
 /* History (waveform-browser) mode */
 .history-host { min-height: 0; }

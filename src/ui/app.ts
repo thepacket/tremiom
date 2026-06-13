@@ -55,8 +55,10 @@ export function mountApp(root: HTMLElement, version: string): void {
       <span class="topbar-label">Alerts</span>
       <span id="alert-picker-mount"></span>
       <span class="topbar-label">Mode</span>
-      <button class="hist-btn" id="hist-btn" title="Browse arbitrary time windows">History</button>
-      <button class="live-btn hidden" id="live-btn" title="Return to live mode">Live</button>
+      <select class="mode-select" id="mode-select" title="Current mode — switch between Live and History">
+        <option value="live">Live</option>
+        <option value="history">History</option>
+      </select>
       <span class="utc-clock-box">
         <span class="topbar-label">UTC</span>
         <span class="topbar-clock" id="utc-clock" title="Current UTC time"></span>
@@ -259,30 +261,41 @@ export function mountApp(root: HTMLElement, version: string): void {
     if (firstFrameAt !== null) window.clearInterval(connTicker);
   }, 60_000);
 
-  // ── Live / Event mode switch ────────────────────────────────────────
+  // ── Live / Event / History mode switch ──────────────────────────────
+  const modeSelect = document.getElementById('mode-select') as HTMLSelectElement;
+  // Reflect the active mode in the dropdown. "Event" is only an option while
+  // an event record-section is open, so the selector never shows a stale mode.
+  function setModeSelect(mode: 'live' | 'event' | 'history') {
+    const eventOpt = modeSelect.querySelector('option[value="event"]');
+    if (mode === 'event' && !eventOpt) {
+      const o = document.createElement('option');
+      o.value = 'event'; o.textContent = 'Event';
+      modeSelect.insertBefore(o, modeSelect.firstChild);
+    } else if (mode !== 'event' && eventOpt) {
+      eventOpt.remove();
+    }
+    modeSelect.value = mode;
+  }
   function showLive() {
     dashHost.classList.remove('hidden');
     eventHost.classList.add('hidden');
     historyHost.classList.add('hidden');
     historyView.hide();
-    document.getElementById('live-btn')?.classList.add('hidden');
-    document.getElementById('hist-btn')?.classList.remove('hidden');
+    setModeSelect('live');
   }
   function showEvent() {
     dashHost.classList.add('hidden');
     eventHost.classList.remove('hidden');
     historyHost.classList.add('hidden');
     historyView.hide();
-    document.getElementById('live-btn')?.classList.remove('hidden');
-    document.getElementById('hist-btn')?.classList.remove('hidden');
+    setModeSelect('event');
   }
   function showHistory() {
     dashHost.classList.add('hidden');
     eventHost.classList.add('hidden');
     historyHost.classList.remove('hidden');
     historyView.show();
-    document.getElementById('live-btn')?.classList.remove('hidden');
-    document.getElementById('hist-btn')?.classList.add('hidden');
+    setModeSelect('history');
   }
 
   // ── Map + sidebar + station/event coordination ──────────────────────
@@ -417,10 +430,10 @@ export function mountApp(root: HTMLElement, version: string): void {
   const alertMount = document.getElementById('alert-picker-mount')!;
   mountAlertPicker(alertMount, () => resubscribe());
 
-  document.getElementById('hist-btn')?.addEventListener('click', () => showHistory());
-  document.getElementById('live-btn')?.addEventListener('click', () => {
-    historyView.hide();
-    pickEvent(null);
+  modeSelect.addEventListener('change', () => {
+    if (modeSelect.value === 'history') showHistory();
+    else if (modeSelect.value === 'live') { historyView.hide(); pickEvent(null); }
+    // 'event' is only selectable while already in event mode — no-op.
   });
   document.getElementById('settings-btn')?.addEventListener('click', openSettings);
   document.getElementById('help-btn')?.addEventListener('click', () => openHelp());

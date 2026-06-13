@@ -115,6 +115,15 @@ export function mountWorldMap(
     ];
   }
 
+  /** Clamp vertical pan so the map always fills the viewport — you can pan
+   *  within the zoomed map but never past its top/bottom edge (the poles).
+   *  At zoom 1 the framed band fits exactly, so panY is pinned to 0.
+   *  Horizontal pan is free (the map tiles east–west and wraps). */
+  function clampPanY() {
+    const maxY = (cssH * (zoom - 1)) / 2;
+    panY = Math.max(-maxY, Math.min(maxY, panY));
+  }
+
   function drawGraticule() {
     ctx.strokeStyle = COLOR_GRATICULE;
     ctx.lineWidth = 1;
@@ -302,21 +311,23 @@ export function mountWorldMap(
   }
 
   // ── Pan / zoom ──────────────────────────────────────────────────────
-  // The map is fixed vertically: only horizontal panning (which wraps) and
-  // zoom are allowed. panY stays 0 throughout.
+  // Horizontal panning is free and wraps east–west; vertical panning is
+  // clamped so the map never scrolls past its top/bottom edge (the poles).
   let dragging = false, dragMoved = false, dragX = 0, dragY = 0;
-  let panX0 = 0;
+  let panX0 = 0, panY0 = 0;
 
   canvas.addEventListener('mousedown', (ev) => {
     dragging = true; dragMoved = false;
     dragX = ev.clientX; dragY = ev.clientY;
-    panX0 = panX;
+    panX0 = panX; panY0 = panY;
   });
   window.addEventListener('mousemove', (ev) => {
     if (!dragging) return;
     const dx = ev.clientX - dragX, dy = ev.clientY - dragY;
     if (Math.abs(dx) + Math.abs(dy) > 3) dragMoved = true;
-    panX = panX0 + dx; // horizontal only — vertical position is fixed
+    panX = panX0 + dx;        // free, wraps
+    panY = panY0 + dy;        // clamped to the poles
+    clampPanY();
     canvas.style.cursor = 'grabbing';
     tooltip.style.display = 'none';
     draw();
@@ -327,14 +338,16 @@ export function mountWorldMap(
   canvas.addEventListener('wheel', (ev) => {
     ev.preventDefault();
     const rect = canvas.getBoundingClientRect();
-    const cx = ev.clientX - rect.left;
+    const cx = ev.clientX - rect.left, cy = ev.clientY - rect.top;
     const factor = ev.deltaY > 0 ? 1 / 1.2 : 1.2;
     const newZoom = Math.max(1, Math.min(10, zoom * factor));
-    // Keep the geographic point under the cursor horizontally fixed; the
-    // map zooms about its vertical centre (panY stays 0).
+    // Keep the geographic point under the cursor fixed (horizontally always,
+    // vertically within the pole clamp).
     const k = newZoom / zoom;
     panX = cx - k * (cx - panX);
+    panY = cy - k * (cy - panY);
     zoom = newZoom;
+    clampPanY();
     draw();
   }, { passive: false });
   canvas.addEventListener('dblclick', () => {
