@@ -11,6 +11,8 @@
   /* World-map header height. Tall enough that the inhabited latitude band
    * (and station markers) read clearly instead of being squished. */
   --map-h: 340px;
+  /* Fixed bottom status bar height. */
+  --statusbar-h: 24px;
   font-family: ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
 }
 
@@ -30,10 +32,37 @@ html, body {
    * viewport — there's no internal scrolling area to chase. */
   display: block;
   min-height: 100vh;
+  /* Reserve space for the fixed bottom status bar so it never covers content. */
+  padding-bottom: var(--statusbar-h);
+}
+
+/* Fixed bottom status bar — connection status centered. */
+.status-bar {
+  position: fixed;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  height: var(--statusbar-h);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  background: var(--panel-bg);
+  border-top: 1px solid var(--panel-border);
+  font-size: 11px;
+  z-index: 40;
+}
+
+/* Top region: events panel (left) + world map (right), both --map-h tall. */
+.top-region {
+  display: grid;
+  grid-template-columns: 280px 1fr;
+  height: var(--map-h);
 }
 
 .map-host {
-  height: var(--map-h);
+  height: 100%;
+  min-height: 0;
   background: var(--bg);
   position: relative;
 }
@@ -78,14 +107,15 @@ html, body {
 .map-tooltip .muted { color: var(--muted); }
 
 .body {
-  display: grid;
-  grid-template-columns: 280px 1fr;
-  /* Body fills the viewport area below topbar + map at minimum, and
-   * grows beyond when the plot grid demands more vertical space.
-   * The document scrollbar handles the overflow. */
+  /* Full-width dashboard/event/history area below the top region. Grows
+   * beyond the viewport when the plot grid demands more vertical space;
+   * the document scrollbar handles the overflow. */
+  display: block;
   min-height: calc(100vh - var(--topbar-h) - var(--map-h));
 }
 
+/* display:contents so .sidebar becomes a direct grid child of .top-region
+ * (the left 280px column). */
 .sidebar-host { display: contents; }
 
 .sidebar {
@@ -93,14 +123,9 @@ html, body {
   display: grid;
   grid-template-rows: 28px auto 1fr;
   min-height: 0;
+  height: 100%;
   overflow: hidden;
   background: #101010;
-  /* Stick under the topbar so the events list is always reachable, no
-   * matter how far the user has scrolled the plots area. */
-  position: sticky;
-  top: var(--topbar-h);
-  max-height: calc(100vh - var(--topbar-h));
-  align-self: start;
 }
 
 .sidebar header {
@@ -700,9 +725,9 @@ html, body {
 /* ── Print to PDF: show only the dashboard ──────────────────────────── */
 @media print {
   body.printing-dashboard .topbar,
-  body.printing-dashboard .map-host,
+  body.printing-dashboard .top-region,
   body.printing-dashboard .map-splitter,
-  body.printing-dashboard .sidebar-host,
+  body.printing-dashboard .status-bar,
   body.printing-dashboard .event-host,
   body.printing-dashboard .history-host,
   body.printing-dashboard .panel-header .panel-remove,
@@ -1056,14 +1081,12 @@ html, body {
   /* Topbar grows with wrapped rows; stop being sticky (a tall wrapped
    * bar pinned to the top eats the screen). */
   .topbar { position: static; }
-  .map-host { height: 150px; }
 
-  /* Single column: sidebar (events) stacks above the dashboard with a
-   * capped height, both scroll within the document. */
-  .body { grid-template-columns: 1fr; }
+  /* Stack the top region: events panel above a 150px map. */
+  .top-region { grid-template-columns: 1fr; height: auto; }
+  .map-host { height: 150px; }
   .sidebar {
-    position: static;
-    max-height: 240px;
+    height: 240px;
     border-right: none;
     border-bottom: 1px solid var(--panel-border);
   }

@@ -42,7 +42,6 @@ export function mountApp(root: HTMLElement, version: string): void {
       <span class="topbar-label">Units</span>
       <span id="units-mount"></span>
       <span class="topbar-spacer"></span>
-      <span class="muted" id="conn">connecting…</span>
       <button class="settings-btn" id="help-btn" title="Help" aria-label="Help">?</button>
       <button class="settings-btn" id="about-btn" title="About" aria-label="About">ⓘ</button>
       <button class="settings-btn" id="settings-btn" title="Settings" aria-label="Settings">⚙</button>
@@ -67,10 +66,18 @@ export function mountApp(root: HTMLElement, version: string): void {
   `;
   root.appendChild(topbar);
 
-  // ── World map (full width, between topbar and body) ─────────────────
+  // ── Top region: events panel (left) + world map (right) ─────────────
+  const topRegion = document.createElement('div');
+  topRegion.className = 'top-region';
+  root.appendChild(topRegion);
+
+  const sidebarHost = document.createElement('div');
+  sidebarHost.className = 'sidebar-host';
+  topRegion.appendChild(sidebarHost);
+
   const mapHost = document.createElement('div');
   mapHost.className = 'map-host';
-  root.appendChild(mapHost);
+  topRegion.appendChild(mapHost);
 
   // Restore a previously dragged map height before first layout.
   const savedMapH = localStorage.getItem('tremiom-map-h');
@@ -87,6 +94,12 @@ export function mountApp(root: HTMLElement, version: string): void {
   const body = document.createElement('div');
   body.className = 'body';
   root.appendChild(body);
+
+  // ── Status bar (fixed at the bottom; connection status centered) ────
+  const statusBar = document.createElement('div');
+  statusBar.className = 'status-bar';
+  statusBar.innerHTML = `<span class="muted" id="conn">connecting…</span>`;
+  root.appendChild(statusBar);
 
   // ── State ───────────────────────────────────────────────────────────
   let currentStation = DEFAULT_STATION;
@@ -123,11 +136,6 @@ export function mountApp(root: HTMLElement, version: string): void {
       if (d.nslc === currentStation) refreshDrumOverlays();
     }
   });
-
-  // ── Sidebar ─────────────────────────────────────────────────────────
-  const sidebarHost = document.createElement('div');
-  sidebarHost.className = 'sidebar-host';
-  body.appendChild(sidebarHost);
 
   // ── Main area: dashboard (live mode) ⇄ record-section (event mode) ─
   const mainArea = document.createElement('div');
