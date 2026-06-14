@@ -1438,31 +1438,67 @@ def start_synthetic(ring: RingBuffer):
     """Generate sinusoid+noise samples for any subscribed station."""
     SR = 40.0  # Hz, mimics broadband Z channel
 
+    def gen(t, n, phase, amp):
+        """One second of a multi-tone "earthquake-like" signal. `phase`
+        and `amp` vary it per channel so the 3-component / particle-motion
+        / H-V panels show three distinct horizontal-vs-vertical traces
+        offline, not three copies of the same line."""
+        if HAS_SCIPY:
+            base = np.arange(n) / SR + t + phase
+            return (amp * (
+                50 * np.sin(2 * math.pi * 0.5 * base) +
+                20 * np.sin(2 * math.pi * 2.3 * base) +
+                10 * np.sin(2 * math.pi * 7.1 * base) +
+                np.random.default_rng().standard_normal(n) * 5
+            )).astype(np.float32).tolist()
+        return [
+            amp * (
+                50 * math.sin(2 * math.pi * 0.5 * (t + i / SR + phase)) +
+                20 * math.sin(2 * math.pi * 2.3 * (t + i / SR + phase)) +
+                10 * math.sin(2 * math.pi * 7.1 * (t + i / SR + phase))
+            )
+            for i in range(n)
+        ]
+
     def run():
         t0 = time.time()
         while True:
             t = time.time() - t0
             with _subs_lock:
+                # Which stations want a horizontal-aware panel? In
+                # production the worker subscribes their Z/N/E siblings
+                # over SeedLink; here there is no SeedLink, so synthesize
+                # the horizontals too or those panels only ever show Z.
+                want_3c = {
+                    s for s, panels in _subscriptions.items()
+                    if panels & {"three-comp", "particle-motion", "hv"}
+                }
                 stations = list(_subscriptions.keys())
             if stations:
                 # 1 second's worth of samples per tick.
                 n = int(SR)
-                base = np.arange(n) / SR + t
-                # Multi-tone "earthquake-like" signal.
-                samples = (
-                    50 * np.sin(2 * math.pi * 0.5 * base) +
-                    20 * np.sin(2 * math.pi * 2.3 * base) +
-                    10 * np.sin(2 * math.pi * 7.1 * base) +
-                    np.random.default_rng().standard_normal(n) * 5
-                ).astype(np.float32).tolist() if HAS_SCIPY else [
-                    50 * math.sin(2 * math.pi * 0.5 * (t + i / SR)) +
-                    20 * math.sin(2 * math.pi * 2.3 * (t + i / SR)) +
-                    10 * math.sin(2 * math.pi * 7.1 * (t + i / SR))
-                    for i in range(int(SR))
-                ]
+                wt = time.time() - n / SR
+                # Vertical, then per-channel horizontals below: (phase, amp)
+                # lag the vertical and differ from each other so the lanes
+                # are legible.
+                samples = gen(t, n, 0.0, 1.0)
                 for st in stations:
                     ring.write(st, SR, samples)
-                    DRUM.write(st, time.time() - n / SR, SR, samples)
+                    DRUM.write(st, wt, SR, samples)
+                    if st not in want_3c:
+                        continue
+                    try:
+                        net, sta, loc, cha = st.split(".")
+                    except ValueError:
+                        continue
+                    if len(cha) != 3:
+                        continue
+                    base = cha[:-1]
+                    for suf, phase, amp in (("N", 0.13, 0.7), ("E", 0.27, 0.55)):
+                        sib = f"{net}.{sta}.{loc}.{base}{suf}"
+                        sib_samples = gen(t, n, phase, amp)
+                        ring.write(sib, SR, sib_samples)
+                        DRUM.write(sib, wt, SR, sib_samples)
             time.sleep(1.0)
 
     threading.Thread(target=run, name="synthetic", daemon=True).start()
