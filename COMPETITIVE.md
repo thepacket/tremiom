@@ -281,17 +281,19 @@ All 17 prioritized gaps are now shipped (one substantially covered):
 | 11 | Felt reports / intensity | ✅ | v0.3.1 |
 | 12 | Focal mechanism beachballs | ✅ | v0.3.2 |
 | 13 | Mobile-responsive layout | ✅ | v0.3.7 |
-| 14 | Wave clipboard | ✅ | v0.3.10 |
+| 14 | Wave clipboard | removed in v0.7.0 | shipped v0.3.10; dropped with the multi-dashboard rework |
 | 15 | Alerts / named triggers | ✅ | v0.3.6 |
 | 16 | PyWEED-style bulk downloader | ~ covered | event browser + per-event MiniSEED/CSV export (v0.3.3); region-batch multi-event download not built |
 | 17 | Magnitude estimation (ML) | ✅ | v0.3.5 |
 
 Plus **instantaneous spectrum / FFT** (recommendation, not numbered) — v0.2.7.
 
-**Panel count: 14** — drum, RSAM, helicorder strip, spectrogram,
-spectrum (FFT), raw scope, 3-component, PSD, STA/LTA, particle motion,
-PPSD, Network, wave clipboard, station QC. All on a drag/resize
-Grafana-style dashboard with per-panel PNG export.
+**Panel count: 14** — drum (Helicorder), RSAM, helicorder strip,
+spectrogram, spectrum (FFT), raw scope, 3-component, PSD, STA/LTA,
+particle motion, PPSD, Network, station QC. Shown all at once on an
+alphabetical N-per-row grid (per-panel PNG export); History and Event
+modes also compute spectrogram/PSD/spectrum/raw-scope/STA-LTA/3-comp/
+particle-motion/HV panels over the fetched window (v0.7.0).
 
 Net result: Tremiom is now a **superset** of the live-monitoring +
 single-event-analysis feature sets of the surveyed tools, in a

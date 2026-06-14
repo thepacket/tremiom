@@ -4,18 +4,19 @@
 
 Tremiom streams live waveforms from thousands of global broadband stations,
 runs the full ObsPy/scipy analysis toolkit server-side, and presents it as a
-configurable Grafana-style dashboard of scientific panels — helicorder drum,
-spectrogram, PSD/PPSD, RSAM, STA/LTA, 3-component, particle motion, H/V site
-response, and more. A live world map and USGS feed drive an event-analysis
-mode (record sections, TauP arrivals, focal-mechanism beachballs, felt-report
-+ ShakeMap overlays, manual + automatic phase picking, grid-search location,
-ML/Md magnitudes, QuakeML/MiniSEED export). A History mode browses any
-station over any time window with zoom/pan, or opens your own MiniSEED/SAC
-files. Every panel removes the instrument response on demand (counts →
-velocity / displacement / acceleration / Wood-Anderson) and applies
-server-side band-pass filters. Dashboards are named, saved, printed to PDF,
-and shared as JSON. And it's self-teaching: every panel carries built-in
-educational help.
+grid of scientific panels — helicorder drum, spectrogram, PSD/PPSD, RSAM,
+STA/LTA, 3-component, particle motion, H/V site response, and more — shown all
+at once, alphabetically, at your chosen panels-per-row and height. A live
+world map and USGS feed drive an event-analysis mode (record sections, TauP
+arrivals, focal-mechanism beachballs, felt-report + ShakeMap overlays, manual
++ automatic phase picking, grid-search location, ML/Md magnitudes,
+QuakeML/MiniSEED export). A History mode browses any station over any time
+window with zoom/pan, or opens your own MiniSEED/SAC files. Both History and
+Event modes also compute spectrogram/PSD/spectrum/raw-scope/STA-LTA/
+3-component/particle-motion/H-V panels over the fetched window. Every panel
+removes the instrument response on demand (counts → velocity / displacement /
+acceleration / Wood-Anderson) and applies server-side band-pass filters. And
+it's self-teaching: every panel carries built-in educational help.
 
 All in the browser, with no install, behind an optional one-token private
 deploy.
@@ -53,7 +54,7 @@ them is the maintainer's.
 - **Open local files** — load your own MiniSEED / SAC / GSE2 (anything
   ObsPy reads) and view them in History mode.
 
-### Live panels (15, on a configurable dashboard)
+### Live panels (14, on an alphabetical grid)
 - **Helicorder** — 24-hour drum recorder; 24 h backfilled on subscribe, then
   live. Catalog events marked at their predicted arrival time.
 - **RSAM** — real-time seismic amplitude (1-min bins over 24 h); tremor tracker.
@@ -68,8 +69,6 @@ them is the maintainer's.
 - **H/V ratio** — Nakamura horizontal-to-vertical site response, f₀ peak.
 - **Network** — multi-station RSAM overview.
 - **Station QC** — gaps / latency / RMS health metrics.
-- **Wave clipboard** — pinned trace snapshots for comparison.
-- **Notes** — editable markdown panels (0..many per dashboard).
 
 ### Signal processing (server-side, applied across panels)
 - **Instrument response removal / units** — counts, velocity (m/s),
@@ -96,20 +95,21 @@ them is the maintainer's.
 - **Grid-search location** from your P picks (offset vs the catalog).
 - **Export** — full-resolution **MiniSEED**, decimated **CSV**, or **PNG**.
 
-### Dashboards
-- **Many named dashboards**, one shown at a time; create / rename / delete
-  from the topbar selector. Drag-to-move, drag-to-resize panels (gridstack).
-- **Per-panel PNG export**, **print whole dashboard to PDF**.
-- **Export / import dashboards as JSON** (Grafana-style sharing/backup).
-- Layout, panels, notes, and picks **persist** in the browser.
+### Panel grid
+- **All panels at once**, in alphabetical order; the 24-h Helicorder leads
+  full-width and double-height.
+- **Panels per row** (1–6) and **Height** dropdowns + a **Refresh** button;
+  both selections **persist** in the browser.
+- **Per-panel PNG export** (the ⤓ on each panel header).
 
 ### Live monitoring
 - **STA/LTA trigger alerts** — browser notification + banner when a station
   crosses your threshold.
 
 ### Modes
-- **Live** (the dashboard), **Event** (record section), **History** (any
-  station, any time window, zoom/pan/step, or a local file).
+- **Live** (the panel grid), **Event** (record section), **History** (any
+  station, any time window, zoom/pan/step, or a local file). Event and
+  History also show computed analysis panels over the fetched window.
 
 ### Built-in help
 - A **?** in the topbar and on every panel opens a searchable, educational
@@ -149,9 +149,8 @@ src/
   main.ts                 Entry
   ui/
     app.ts                Top-level layout + state plumbing
-    dashboard.ts          Multi-dashboard manager (gridstack) + markdown panels
-    dashboard-bar.ts      Topbar dashboard selector / CRUD / JSON / PDF
-    panel-picker.ts       Add/remove panels popover
+    dashboard.ts          Panel grid (all panels, alphabetical, N-per-row)
+    analysis-panels.ts    History/Event computed-panel strip
     station-picker.ts     Topbar station selector + Browse modal
     station-search.ts     FDSN station-catalog search modal
     filter-picker.ts      Band-pass filter selector
@@ -168,14 +167,13 @@ src/
     registry.ts           Panel registry
     drum.ts rsam.ts spectrogram.ts spectrum.ts psd.ts ppsd.ts
     sta-lta.ts raw-scope.ts three-comp.ts particle-motion.ts hv.ts
-    helicorder.ts network.ts clipboard.ts qc.ts
+    helicorder.ts network.ts qc.ts
     axes.ts colormap.ts   Shared plot helpers
   data/
     stations.ts events.ts event-waveforms.ts filters.ts
     coastlines.json       Natural Earth 1:110m land outlines
   transport/
     ws.ts events.ts       WebSocket client + USGS feed poller
-  util/markdown.ts        Dependency-free markdown renderer (notes panels)
 server.mjs                Node WS multiplexer + REST/FDSN/USGS proxies + auth
 workers/
   worker.py               Unified SeedLink ingestor + live panel computers
@@ -184,6 +182,7 @@ workers/
   event_magnitude.py      ML (Wood-Anderson) + Md (coda) estimation
   event_autopick.py       STA/LTA P-arrival auto-picker
   waveform_fetch.py       Arbitrary-window fetch (History mode)
+  waveform_panels.py      Compute analysis panels (History/Event window)
   parse_waveform.py       Parse uploaded local files
   requirements.txt        obspy, numpy, scipy
 ARCHITECTURE.md           Design doc + roadmap
@@ -379,10 +378,10 @@ fly certs show tremiom.yourdomain.com -a tremiom   # check issuance
 
 ## Status
 
-**v0.4.x.** Live, event, and history modes all work end-to-end against IRIS
-rtserve + EarthScope FDSN + USGS, with 15 panels, configurable multi-
-dashboards, response removal, picking/location/magnitudes, and built-in
-help. Per [`COMPETITIVE.md`](./COMPETITIVE.md), Tremiom is a superset of the
+**v0.7.x.** Live, event, and history modes all work end-to-end against IRIS
+rtserve + EarthScope FDSN + USGS, with 14 panels on an alphabetical
+panels-per-row grid, computed analysis panels in History/Event, response
+removal, picking/location/magnitudes, and built-in help. Per [`COMPETITIVE.md`](./COMPETITIVE.md), Tremiom is a superset of the
 live-monitoring + single-event-analysis feature sets of the established
 tools (Swarm, SeisComP, Snuffler, Wilber 3, GeoNet, Raspberry Shake, …);
 the only deliberate exclusions are array/research subsystems (FK,
@@ -415,7 +414,6 @@ right to use, fork, and modify it freely.
   (moment tensor, DYFI felt reports, ShakeMap intensity)
 - **ObsPy** — the seismology toolkit that makes the Python side possible
   (SeedLink, FDSN, response removal, TauP, triggers, beachballs, …)
-- **gridstack.js** — the draggable/resizable dashboard grid
 - **Natural Earth** — public-domain 1:110m land outlines
 - **TauP** — iasp91 travel-time tables, via ObsPy
 

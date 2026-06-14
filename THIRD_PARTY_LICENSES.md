@@ -39,7 +39,6 @@ ObsPy is **LGPL-3.0**. Tremiom complies with it as follows:
 | Package | License |
 |---|---|
 | ws | MIT |
-| gridstack | MIT |
 | Natural Earth 1:110m land outlines (`src/data/coastlines.json`) | Public domain |
 
 ## Build / dev only (not shipped in the runtime image)

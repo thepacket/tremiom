@@ -14,10 +14,13 @@ separate pip subprocess). Deployed on fly.io.
   per-network SeedLink routing IRIS + Raspberry Shake). One-shot helpers:
   `event_fetch` (record section + TauP + ZRT), `event_export` (MiniSEED),
   `event_magnitude` (ML+Md), `event_autopick`, `waveform_fetch` (History),
-  `parse_waveform` (local files).
+  `waveform_panels` (History/Event analysis panels), `parse_waveform` (local files).
 - Panels: registry in `src/panels/registry.ts`; each is `render(ctx,canvas,frame)`.
-- Dashboard: `src/ui/dashboard.ts` (gridstack), multi-dashboard store in
-  localStorage `tremiom-dashboards-v2`.
+- Panel grid: `src/ui/dashboard.ts` — a plain CSS grid showing **every**
+  registered panel, alphabetical, N-per-row. No drag/resize or multiple
+  dashboards. "Panels per row" (1–6) + "Height" (px) + a Refresh button;
+  both selections persist to localStorage. The 24-h Helicorder leads
+  full-width + double-height.
 
 ## Conventions (FOLLOW THESE)
 - **Bump `package.json` version every change** (v0.x.y), commit with a detailed
@@ -32,9 +35,6 @@ separate pip subprocess). Deployed on fly.io.
 - Build check: `npx tsc -b` (typecheck) then `npx vite build`.
 
 ## Gotchas (HARD-WON)
-- **gridstack ships CSS only for ≤12 columns.** Grid is **12-column**: full-width
-  panels w:12, pairs w:6. `column:24` silently fell back to 12 and stacked
-  everything. `migrate24to12()` rescales old 24-col saved layouts.
 - **CSS layout offsets use vars** `--topbar-h: 64px` (two-row topbar) and
   `--map-h: 340px` (map header). Don't hardcode 36/220 px.
 - **Canvas panels need `minmax(0,1fr)` grid track + `min-height:0`** or the
@@ -51,16 +51,22 @@ separate pip subprocess). Deployed on fly.io.
 - Event-waveform server cache key must include component (Z/R/T) + nStations.
 - Auth: `TREMIOM_TOKEN` env → whole-app cookie gate + sign-in form; unset = open.
 
-## Default dashboard (v0.4.7)
-Drum full row; then pairs: spectrogram|spectrum, psd|ppsd, sta-lta|rsam,
-raw-scope|three-comp, particle-motion|hv. No markdown/clipboard/network/qc by
-default (available via + Panel).
+## Panel grid (v0.7.0)
+All registered panels shown at once in one alphabetical CSS grid (the 24-h
+Helicorder leads full-width + double-height). "Panels per row" / "Height"
+dropdowns + Refresh. The old multi-dashboard system (gridstack drag/resize,
+named dashboards, JSON/PDF, the + Panel picker, markdown Notes, the pin→Wave
+clipboard) was **removed** in v0.7.0. History + Event modes additionally show
+computed analysis panels (spectrogram/PSD/spectrum/raw-scope/STA-LTA/3-comp/
+particle-motion/HV) over the fetched window via `workers/waveform_panels.py`
+and `/api/waveform/panels`.
 
 ## Feature status
 Superset of surveyed tools' live-monitoring + single-event analysis — see
-`COMPETITIVE.md`. 15 panels, response removal/units, filters, History mode +
-local files, picking/auto-pick/locate, ML/Md, beachballs, DYFI+ShakeMap,
-multi-dashboard (CRUD/PDF/JSON), alerts, built-in per-panel help.
+`COMPETITIVE.md`. 14 panels in an alphabetical N-per-row grid, response
+removal/units, filters, History + Event analysis panels, local files,
+picking/auto-pick/locate, ML/Md, beachballs, DYFI+ShakeMap, alerts,
+built-in per-panel help.
 **Deliberately NOT built** (documented): FK/array (no arrays in data), receiver
 functions, cross-correlation, full auto-association pipeline, Mb/Ms/Mw.
 

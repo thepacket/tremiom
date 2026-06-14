@@ -15,7 +15,6 @@
     "worker:synthetic": "workers/.venv/bin/python workers/worker.py --synthetic"
   },
   "dependencies": {
-    "gridstack": "^12.6.0",
     "ws": "^8.20.0"
   },
   "devDependencies": {
