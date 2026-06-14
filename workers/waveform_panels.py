@@ -53,16 +53,37 @@ SINGLE_PANELS = {"psd", "spectrum", "spectrogram", "raw-scope", "sta-lta"}
 THREEC_PANELS = {"three-comp", "particle-motion", "hv"}
 
 
+# Heavy deps imported once at module load. panel_server.py keeps this module
+# resident so each request avoids the (~1-2 s) ObsPy import cost.
+try:
+    import numpy as np
+    from scipy import signal as ss
+    from obspy import UTCDateTime
+    from obspy.clients.fdsn import Client as FdsnClient
+    HAVE_DEPS = True
+except ImportError:
+    HAVE_DEPS = False
+
+
 def fail(msg, **extra):
     sys.stdout.write(json.dumps({"error": msg, **extra}))
     sys.stdout.flush()
     sys.exit(0)
 
 
-def fdsn_client_for(net, FdsnClient):
-    if net == "AM":
-        return FdsnClient("https://data.raspberryshake.org", timeout=60)
-    return FdsnClient("EARTHSCOPE", timeout=60)
+# Reuse FDSN clients across requests — the service discovery handshake is then
+# done once, not on every window.
+_clients = {}
+
+
+def fdsn_client_for(net):
+    key = "AM" if net == "AM" else "default"
+    cl = _clients.get(key)
+    if cl is None:
+        cl = (FdsnClient("https://data.raspberryshake.org", timeout=60) if net == "AM"
+              else FdsnClient("EARTHSCOPE", timeout=60))
+        _clients[key] = cl
+    return cl
 
 
 _WA_PAZ = {"poles": [-6.283 - 4.7124j, -6.283 + 4.7124j],
@@ -247,11 +268,12 @@ def compute_hv(comps, base, np, ss):
     return None
 
 
-def main():
-    try:
-        req = json.loads(sys.stdin.read())
-    except Exception as e:
-        fail(f"bad input: {e!r}")
+# ── Fetch + compute one window's panels. Returns a result dict (or an
+#    {"error": ...} dict); never exits — so panel_server.py can call it in a
+#    loop. ──────────────────────────────────────────────────────────────────
+def run_panels(req):
+    if not HAVE_DEPS:
+        return {"error": "deps missing"}
     nslc = req.get("nslc", "")
     start_ms = req.get("startMs")
     dur_s = float(req.get("durS") or 600)
@@ -261,19 +283,11 @@ def main():
     try:
         net, sta, loc, cha = nslc.split(".")
     except ValueError:
-        fail("bad nslc")
+        return {"error": "bad nslc"}
     if start_ms is None:
-        fail("missing startMs")
+        return {"error": "missing startMs"}
     if len(cha) != 3:
-        fail("bad channel")
-
-    try:
-        import numpy as np
-        from scipy import signal as ss
-        from obspy import UTCDateTime
-        from obspy.clients.fdsn import Client as FdsnClient
-    except ImportError as e:
-        fail(f"deps missing: {e!r}")
+        return {"error": "bad channel"}
 
     base = cha[:-1]
     need_3c = any(p in THREEC_PANELS for p in panels)
@@ -282,13 +296,13 @@ def main():
     t0 = UTCDateTime(start_ms / 1000.0)
     t1 = t0 + dur_s
     try:
-        client = fdsn_client_for(net, FdsnClient)
+        client = fdsn_client_for(net)
         st = client.get_waveforms(network=net, station=sta, location=loc,
                                   channel=ch_query, starttime=t0, endtime=t1)
     except Exception as e:
-        fail(f"fetch failed: {e!r}", nslc=nslc)
+        return {"error": f"fetch failed: {e!r}", "nslc": nslc}
     if not st:
-        fail("no data for window", nslc=nslc)
+        return {"error": "no data for window", "nslc": nslc}
     st.merge(method=0, fill_value=0)
 
     inv = None
@@ -311,7 +325,7 @@ def main():
             unit_label = ul
             t0_actual_ms = int(tr.stats.starttime.timestamp * 1000)
     if not comps:
-        fail("empty trace", nslc=nslc)
+        return {"error": "empty trace", "nslc": nslc}
 
     prim = comps.get(cha[-1]) or comps.get("Z") or next(iter(comps.values()))
     prim_data, prim_sr = prim
@@ -343,8 +357,17 @@ def main():
         except Exception as e:
             sys.stderr.write(f"panel {p} failed: {e!r}\n")
 
-    out = {"nslc": nslc, "t0Ms": t0_actual_ms, "sr": prim_sr,
-           "unit": unit_label, "frames": frames}
+    return {"nslc": nslc, "t0Ms": t0_actual_ms, "sr": prim_sr,
+            "unit": unit_label, "frames": frames}
+
+
+def main():
+    """One-shot mode: read one request from stdin, print the result."""
+    try:
+        req = json.loads(sys.stdin.read())
+    except Exception as e:
+        fail(f"bad input: {e!r}")
+    out = run_panels(req)
     sys.stdout.write(json.dumps(out, separators=(",", ":")))
     sys.stdout.flush()
 

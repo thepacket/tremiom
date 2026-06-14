@@ -622,32 +622,46 @@ async function handleParseWaveform(req, res) {
 }
 
 // ─── Arbitrary-window waveform fetch (History mode) ───────────────────────
+// One-shot fallback for the History envelope fetch.
+function computeWaveform(body) {
+  return new Promise((resolve, reject) => {
+    const proc = spawn(PYTHON, ['workers/waveform_fetch.py'], {
+      stdio: ['pipe', 'pipe', 'inherit'],
+    });
+    let stdout = '';
+    const timer = setTimeout(() => proc.kill('SIGTERM'), 60_000);
+    proc.stdout.on('data', (c) => { stdout += c.toString('utf8'); });
+    proc.on('exit', (code) => {
+      clearTimeout(timer);
+      if (code === 0 && stdout) resolve(stdout);
+      else reject(new Error(`waveform fetch failed (code ${code})`));
+    });
+    proc.stdin.write(body);
+    proc.stdin.end();
+  });
+}
+
 async function handleWaveform(req, res) {
   if (req.method !== 'POST') { res.writeHead(405).end(); return; }
   let body;
   try { body = await readBody(req); } catch { res.writeHead(400).end(); return; }
-  // Validate JSON early.
-  try { JSON.parse(body); } catch {
+  let parsed;
+  try { parsed = JSON.parse(body); } catch {
     res.writeHead(400, { 'content-type': 'application/json' });
     res.end(JSON.stringify({ error: 'bad json' })); return;
   }
-  const proc = spawn(PYTHON, ['workers/waveform_fetch.py'], {
-    stdio: ['pipe', 'pipe', 'inherit'],
-  });
-  let stdout = '';
-  const timer = setTimeout(() => proc.kill('SIGTERM'), 60_000);
-  proc.stdout.on('data', (c) => { stdout += c.toString('utf8'); });
-  proc.on('exit', (code) => {
-    clearTimeout(timer);
-    if (code !== 0 || !stdout) {
-      res.writeHead(502, { 'content-type': 'application/json' });
-      res.end(JSON.stringify({ error: 'waveform fetch failed', code })); return;
-    }
+  try {
+    // Route through the warm worker (op: 'waveform') when available, so each
+    // pan/zoom skips the ObsPy import + FDSN handshake cold-start.
+    const out = panelWorker
+      ? await requestPanelsWarm(JSON.stringify({ ...parsed, op: 'waveform' }))
+      : await computeWaveform(body);
     res.writeHead(200, { 'content-type': 'application/json' });
-    res.end(stdout);
-  });
-  proc.stdin.write(body);
-  proc.stdin.end();
+    res.end(out);
+  } catch {
+    res.writeHead(502, { 'content-type': 'application/json' });
+    res.end(JSON.stringify({ error: 'waveform fetch failed' }));
+  }
 }
 
 // Compute static analysis-panel frames (spectrogram / PSD / spectrum / …)
@@ -661,6 +675,61 @@ const panelsInflight = new Map(); // requestBody -> Promise<string>
 const PANELS_TTL_MS = 5 * 60_000;
 const PANELS_MAX = 24;
 
+// Warm panel worker: a long-lived `panel_server.py` with ObsPy already
+// imported, so each compute skips the ~1-2 s import cold-start. Requests are
+// matched to responses by id over NDJSON. Falls back to a one-shot spawn if
+// the worker isn't up.
+let panelWorker = null;
+let panelReqId = 0;
+const panelPending = new Map(); // id -> { resolve, reject, timer }
+
+function spawnPanelWorker() {
+  // Python adds the script's own dir to sys.path, so panel_server.py can
+  // `import waveform_panels` (both live in workers/).
+  const proc = spawn(PYTHON, ['workers/panel_server.py'], {
+    stdio: ['pipe', 'pipe', 'inherit'],
+  });
+  let buf = '';
+  proc.stdout.on('data', (chunk) => {
+    buf += chunk.toString('utf8');
+    let nl;
+    while ((nl = buf.indexOf('\n')) >= 0) {
+      const line = buf.slice(0, nl); buf = buf.slice(nl + 1);
+      if (!line) continue;
+      let msg;
+      try { msg = JSON.parse(line); } catch { continue; }
+      const p = panelPending.get(msg.id);
+      if (p) { clearTimeout(p.timer); panelPending.delete(msg.id); p.resolve(line); }
+    }
+  });
+  proc.on('exit', (code) => {
+    console.log(`[panel-worker] exited ${code} — restarting in 2s`);
+    panelWorker = null;
+    for (const p of panelPending.values()) { clearTimeout(p.timer); p.reject(new Error('panel worker died')); }
+    panelPending.clear();
+    setTimeout(() => { panelWorker = spawnPanelWorker(); }, 2000);
+  });
+  console.log('[panel-worker] spawned');
+  return proc;
+}
+
+function requestPanelsWarm(body) {
+  return new Promise((resolve, reject) => {
+    if (!panelWorker) { reject(new Error('panel worker not running')); return; }
+    let req;
+    try { req = JSON.parse(body); } catch { reject(new Error('bad json')); return; }
+    const id = ++panelReqId;
+    req.id = id;
+    const timer = setTimeout(() => {
+      panelPending.delete(id); reject(new Error('panel compute timeout'));
+    }, 60_000);
+    panelPending.set(id, { resolve, reject, timer });
+    try { panelWorker.stdin.write(JSON.stringify(req) + '\n'); }
+    catch (e) { clearTimeout(timer); panelPending.delete(id); reject(e); }
+  });
+}
+
+// One-shot fallback (used only if the warm worker is down).
 function computePanels(body) {
   return new Promise((resolve, reject) => {
     const proc = spawn(PYTHON, ['workers/waveform_panels.py'], {
@@ -695,7 +764,8 @@ async function handleWaveformPanels(req, res) {
   }
   let job = panelsInflight.get(key);
   if (!job) {
-    job = computePanels(key).finally(() => panelsInflight.delete(key));
+    job = (panelWorker ? requestPanelsWarm(key) : computePanels(key))
+      .finally(() => panelsInflight.delete(key));
     panelsInflight.set(key, job);
   }
   try {
@@ -1338,6 +1408,9 @@ wss.on('connection', (ws) => {
 // immediately so the first subscribe lands on the right server.
 worker = spawnWorker();
 pushSeedlinkConfig();
+
+// Warm panel-compute worker for History/Event analysis panels.
+panelWorker = spawnPanelWorker();
 
 httpServer.listen(PORT, () => {
   console.log(`tremiom server on :${PORT}`);
