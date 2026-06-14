@@ -650,6 +650,35 @@ async function handleWaveform(req, res) {
   proc.stdin.end();
 }
 
+// Compute static analysis-panel frames (spectrogram / PSD / spectrum) over a
+// fetched window, so History + Event modes can show the dashboard panels.
+async function handleWaveformPanels(req, res) {
+  if (req.method !== 'POST') { res.writeHead(405).end(); return; }
+  let body;
+  try { body = await readBody(req); } catch { res.writeHead(400).end(); return; }
+  try { JSON.parse(body); } catch {
+    res.writeHead(400, { 'content-type': 'application/json' });
+    res.end(JSON.stringify({ error: 'bad json' })); return;
+  }
+  const proc = spawn(PYTHON, ['workers/waveform_panels.py'], {
+    stdio: ['pipe', 'pipe', 'inherit'],
+  });
+  let stdout = '';
+  const timer = setTimeout(() => proc.kill('SIGTERM'), 60_000);
+  proc.stdout.on('data', (c) => { stdout += c.toString('utf8'); });
+  proc.on('exit', (code) => {
+    clearTimeout(timer);
+    if (code !== 0 || !stdout) {
+      res.writeHead(502, { 'content-type': 'application/json' });
+      res.end(JSON.stringify({ error: 'panel compute failed', code })); return;
+    }
+    res.writeHead(200, { 'content-type': 'application/json' });
+    res.end(stdout);
+  });
+  proc.stdin.write(body);
+  proc.stdin.end();
+}
+
 async function handleEventAutopick(req, res) {
   if (req.method !== 'POST') { res.writeHead(405).end(); return; }
   let body;
@@ -1108,6 +1137,10 @@ const httpServer = http.createServer((req, res) => {
   }
   if (req.url?.startsWith('/api/parse-waveform')) {
     handleParseWaveform(req, res);
+    return;
+  }
+  if (req.url?.startsWith('/api/waveform/panels')) {
+    handleWaveformPanels(req, res);
     return;
   }
   if (req.url?.startsWith('/api/waveform')) {

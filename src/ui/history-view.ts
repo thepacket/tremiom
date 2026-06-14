@@ -10,6 +10,7 @@
 
 import { AXIS_PAD, COLOR_LABEL, drawFrame, niceStep, plotBounds } from '../panels/axes';
 import type { FilterSpec } from '../data/filters';
+import { mountAnalysisPanels } from './analysis-panels';
 
 interface WaveformResp {
   nslc: string;
@@ -66,8 +67,12 @@ export function mountHistoryView(parent: HTMLElement, deps: HistoryDeps): Histor
       <canvas></canvas>
       <div class="hv-status muted">…</div>
     </div>
+    <div class="hv-panels"></div>
   `;
   parent.appendChild(root);
+
+  // Analysis panels (spectrogram / PSD / spectrum) computed over the window.
+  const analysisPanels = mountAnalysisPanels(root.querySelector('.hv-panels') as HTMLElement);
 
   const canvas = root.querySelector('canvas') as HTMLCanvasElement;
   const info   = root.querySelector('.hv-info') as HTMLElement;
@@ -154,6 +159,7 @@ export function mountHistoryView(parent: HTMLElement, deps: HistoryDeps): Histor
     info.textContent = `📂 ${t.nslc}  ·  ${fmtUTC(t.t0Ms)} +${fmtDur(t.durS)}  ·  ${t.sr} Hz`;
     setStatus(null);
     draw();
+    analysisPanels.clear(); // local files have no server-side compute path
   }
 
   function exitLocal() {
@@ -187,12 +193,14 @@ export function mountHistoryView(parent: HTMLElement, deps: HistoryDeps): Histor
         resp = null;
         setStatus(j.error ? `no data: ${j.error}` : `HTTP ${r.status}`, true);
         draw();
+        analysisPanels.clear();
         return;
       }
       resp = j;
       setStatus(null);
       info.textContent = `${nslc}  ·  ${fmtUTC(startMs)} +${fmtDur(durS)}  ·  ${j.sr} Hz`;
       draw();
+      analysisPanels.update({ nslc, startMs, durS, units: deps.units(), filter: deps.filter() });
     } catch (e) {
       if (myToken !== fetchToken) return;
       setStatus(`fetch failed: ${(e as Error).message}`, true);

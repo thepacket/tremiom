@@ -10,6 +10,8 @@ import {
   type EventWaveforms,
   fetchEventWaveforms,
 } from '../data/event-waveforms';
+import { mountAnalysisPanels } from './analysis-panels';
+import { DEFAULT_FILTER } from '../data/filters';
 
 const PADDING = { top: 24, right: 56, bottom: 28, left: 110 };
 const COLOR_TRACE = '#7ad';
@@ -56,8 +58,12 @@ export function mountRecordSection(parent: HTMLElement): RecordSectionHandle {
       <canvas></canvas>
       <div class="rs-status muted">no event selected</div>
     </div>
+    <div class="rs-panels"></div>
   `;
   parent.appendChild(root);
+
+  // Analysis panels for the nearest station, computed over the event window.
+  const analysisPanels = mountAnalysisPanels(root.querySelector('.rs-panels') as HTMLElement);
 
   const canvas = root.querySelector('.rs-body canvas') as HTMLCanvasElement;
   const info   = root.querySelector('.info')   as HTMLElement;
@@ -589,9 +595,11 @@ export function mountRecordSection(parent: HTMLElement): RecordSectionHandle {
     if (!e) {
       info.textContent = '';
       setStatus('no event selected');
+      analysisPanels.clear();
       draw();
       return;
     }
+    analysisPanels.clear();
     // Restore (or create) this event's pick set.
     picks = picksByEvent.get(e.id) ?? new Map();
     picksByEvent.set(e.id, picks);
@@ -621,6 +629,16 @@ export function mountRecordSection(parent: HTMLElement): RecordSectionHandle {
         exportBar.classList.remove('hidden'); pickBar.classList.remove('hidden');
       }
       draw();
+      // Compute the analysis panels for the nearest station over its window.
+      const nearest = [...w.stations].sort((a, b) => a.distKm - b.distKm)[0];
+      if (nearest) {
+        const winS = nearest.sr > 0 && nearest.data.length
+          ? nearest.data.length / nearest.sr : 120;
+        analysisPanels.update({
+          nslc: nearest.nslc, startMs: nearest.t0Ms, durS: winS,
+          units: 'counts', filter: DEFAULT_FILTER,
+        });
+      }
     } catch (err) {
       if (myToken !== token) return;
       setStatus(`fetch failed: ${(err as Error).message}`, 'error');
