@@ -45,8 +45,10 @@ export function mountDashboard(
 ): DashboardHandle {
   const grid = document.createElement('div');
   grid.className = 'panel-grid';
-  grid.style.setProperty('--per-row', String(clampPerRow(opts.perRow ?? 2)));
-  grid.style.setProperty('--panel-h', `${opts.height ?? 200}px`);
+  // Layout vars live on :root so the History/Event analysis strips inherit
+  // the same panels-per-row + height as the live grid.
+  document.documentElement.style.setProperty('--per-row', String(clampPerRow(opts.perRow ?? 2)));
+  document.documentElement.style.setProperty('--panel-h', `${opts.height ?? 200}px`);
   parent.appendChild(grid);
 
   // The 24-hour Helicorder (drum) leads: full-width + double height. The
@@ -125,8 +127,8 @@ export function mountDashboard(
       }
     },
     activePanels: () => [...mounted.keys()],
-    setPerRow(n) { grid.style.setProperty('--per-row', String(clampPerRow(n))); },
-    setHeight(px) { grid.style.setProperty('--panel-h', `${px}px`); },
+    setPerRow(n) { document.documentElement.style.setProperty('--per-row', String(clampPerRow(n))); },
+    setHeight(px) { document.documentElement.style.setProperty('--panel-h', `${px}px`); },
     refresh() {
       for (const m of mounted.values()) {
         const dpr = window.devicePixelRatio || 1;

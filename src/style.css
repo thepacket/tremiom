@@ -246,8 +246,8 @@ html, body {
  * spectrogram / PSD / spectrum canvases over a fetched window. */
 .analysis-panels {
   display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
-  grid-auto-rows: 150px;
+  grid-template-columns: repeat(var(--per-row, 2), minmax(0, 1fr));
+  grid-auto-rows: var(--panel-h, 200px);
   gap: 1px;
   background: var(--panel-border);
   height: 100%;
@@ -952,7 +952,7 @@ html, body {
     border-bottom: 1px solid var(--panel-border);
   }
   /* Force a single panel column on phones regardless of the "Per row" field. */
-  .panel-grid { grid-template-columns: 1fr; }
+  .panel-grid, .analysis-panels { grid-template-columns: 1fr; }
   .dash-host { padding: 4px; }
 
   /* Modals go near-fullscreen so the search / settings forms are usable. */

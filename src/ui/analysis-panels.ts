@@ -27,6 +27,7 @@ export interface AnalysisUpdate {
   filter: FilterSpec;
 }
 
+// Alphabetical (case-insensitive) by label, matching the live grid.
 const PANELS: Array<{ id: string; label: string }> = [
   { id: 'spectrogram', label: 'Spectrogram' },
   { id: 'spectrum', label: 'Spectrum (FFT)' },
@@ -36,7 +37,7 @@ const PANELS: Array<{ id: string; label: string }> = [
   { id: 'three-comp', label: '3-component' },
   { id: 'particle-motion', label: 'Particle motion' },
   { id: 'hv', label: 'H/V ratio' },
-];
+].sort((a, b) => a.label.localeCompare(b.label, undefined, { sensitivity: 'base' }));
 
 export interface AnalysisPanelsHandle {
   update(opts: AnalysisUpdate): void;
