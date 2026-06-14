@@ -47,7 +47,7 @@ export interface AnalysisPanelsHandle {
 export function mountAnalysisPanels(parent: HTMLElement): AnalysisPanelsHandle {
   const root = document.createElement('div');
   root.className = 'analysis-panels';
-  const cells = new Map<string, { canvas: HTMLCanvasElement; ctx: CanvasRenderingContext2D }>();
+  const cells = new Map<string, { el: HTMLElement; canvas: HTMLCanvasElement; ctx: CanvasRenderingContext2D }>();
 
   for (const p of PANELS) {
     const cell = document.createElement('div');
@@ -56,7 +56,7 @@ export function mountAnalysisPanels(parent: HTMLElement): AnalysisPanelsHandle {
     root.appendChild(cell);
     const canvas = cell.querySelector('canvas') as HTMLCanvasElement;
     const ctx = canvas.getContext('2d')!;
-    cells.set(p.id, { canvas, ctx });
+    cells.set(p.id, { el: cell, canvas, ctx });
     const ro = new ResizeObserver(() => {
       const dpr = window.devicePixelRatio || 1;
       canvas.width = Math.max(1, Math.floor(canvas.clientWidth * dpr));
@@ -70,8 +70,29 @@ export function mountAnalysisPanels(parent: HTMLElement): AnalysisPanelsHandle {
 
   let lastFrames: PanelFrames = {};
   let lastNslc = '';
+  let lastOpts: AnalysisUpdate | null = null;
   let token = 0;
   let debounce: number | null = null;
+
+  /** Panel ids whose cell is within the strip's scroll viewport (+margin) —
+   *  so we only compute the panels the user can actually see. */
+  function visiblePanelIds(): string[] {
+    const rr = root.getBoundingClientRect();
+    const ids: string[] = [];
+    for (const p of PANELS) {
+      const c = cells.get(p.id); if (!c) continue;
+      const r = c.el.getBoundingClientRect();
+      if (r.bottom > rr.top - 120 && r.top < rr.bottom + 120) ids.push(p.id);
+    }
+    return ids.length ? ids : PANELS.map((p) => p.id);
+  }
+
+  function scheduleFetch(): void {
+    if (debounce) window.clearTimeout(debounce);
+    debounce = window.setTimeout(() => void doFetch(), 300);
+  }
+  // Fetch newly-revealed panels as the strip is scrolled.
+  root.addEventListener('scroll', scheduleFetch, { passive: true });
 
   function placeholder(id: string, msg: string) {
     const c = cells.get(id); if (!c) return;
@@ -100,40 +121,48 @@ export function mountAnalysisPanels(parent: HTMLElement): AnalysisPanelsHandle {
   }
 
   function update(opts: AnalysisUpdate): void {
-    if (debounce) window.clearTimeout(debounce);
-    debounce = window.setTimeout(() => void doFetch(opts), 260);
+    token++;                       // invalidate any in-flight fetch (window changed)
+    lastOpts = opts;
+    lastNslc = opts.nslc;
+    lastFrames = {};               // new window — drop stale frames
+    for (const p of PANELS) placeholder(p.id, '—');
+    scheduleFetch();
   }
 
-  async function doFetch(opts: AnalysisUpdate): Promise<void> {
+  async function doFetch(): Promise<void> {
+    if (!lastOpts) return;
+    const opts = lastOpts;
+    // Only the visible panels not already computed for this window.
+    const wanted = visiblePanelIds().filter((id) => !(id in lastFrames));
+    if (!wanted.length) return;
     const my = ++token;
-    lastNslc = opts.nslc;
-    for (const p of PANELS) placeholder(p.id, 'computing…');
+    for (const id of wanted) placeholder(id, 'computing…');
     try {
       const r = await fetch('/api/waveform/panels', {
         method: 'POST', headers: { 'content-type': 'application/json' },
         body: JSON.stringify({
           nslc: opts.nslc, startMs: Math.round(opts.startMs), durS: opts.durS,
-          units: opts.units, filter: opts.filter,
-          panels: PANELS.map((p) => p.id),
+          units: opts.units, filter: opts.filter, panels: wanted,
         }),
       });
       if (my !== token) return;
       const j = await r.json() as PanelsResp;
       if (my !== token) return;
       if (!r.ok || j.error || !j.frames) {
-        for (const p of PANELS) placeholder(p.id, j.error ? 'no data' : `HTTP ${r.status}`);
+        for (const id of wanted) placeholder(id, j.error ? 'no data' : `HTTP ${r.status}`);
         return;
       }
-      lastFrames = j.frames;
-      for (const p of PANELS) redraw(p.id);
+      lastFrames = { ...lastFrames, ...j.frames };
+      for (const id of Object.keys(j.frames)) redraw(id);
     } catch {
       if (my !== token) return;
-      for (const p of PANELS) placeholder(p.id, 'failed');
+      for (const id of wanted) placeholder(id, 'failed');
     }
   }
 
   function clear(): void {
     token++;
+    lastOpts = null;
     lastFrames = {};
     for (const p of PANELS) placeholder(p.id, '—');
   }

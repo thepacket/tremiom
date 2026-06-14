@@ -650,8 +650,35 @@ async function handleWaveform(req, res) {
   proc.stdin.end();
 }
 
-// Compute static analysis-panel frames (spectrogram / PSD / spectrum) over a
-// fetched window, so History + Event modes can show the dashboard panels.
+// Compute static analysis-panel frames (spectrogram / PSD / spectrum / …)
+// over a fetched window, so History + Event modes can show the dashboard
+// panels. Results are cached + single-flighted: re-opening an event or
+// panning back to a window is instant, and duplicate in-flight requests
+// share one compute (the FDSN fetch + scipy is the expensive part, and the
+// fly VM only has one CPU).
+const panelsCache = new Map(); // requestBody -> { ts, body }
+const panelsInflight = new Map(); // requestBody -> Promise<string>
+const PANELS_TTL_MS = 5 * 60_000;
+const PANELS_MAX = 24;
+
+function computePanels(body) {
+  return new Promise((resolve, reject) => {
+    const proc = spawn(PYTHON, ['workers/waveform_panels.py'], {
+      stdio: ['pipe', 'pipe', 'inherit'],
+    });
+    let stdout = '';
+    const timer = setTimeout(() => proc.kill('SIGTERM'), 60_000);
+    proc.stdout.on('data', (c) => { stdout += c.toString('utf8'); });
+    proc.on('exit', (code) => {
+      clearTimeout(timer);
+      if (code === 0 && stdout) resolve(stdout);
+      else reject(new Error(`panel compute failed (code ${code})`));
+    });
+    proc.stdin.write(body);
+    proc.stdin.end();
+  });
+}
+
 async function handleWaveformPanels(req, res) {
   if (req.method !== 'POST') { res.writeHead(405).end(); return; }
   let body;
@@ -660,23 +687,31 @@ async function handleWaveformPanels(req, res) {
     res.writeHead(400, { 'content-type': 'application/json' });
     res.end(JSON.stringify({ error: 'bad json' })); return;
   }
-  const proc = spawn(PYTHON, ['workers/waveform_panels.py'], {
-    stdio: ['pipe', 'pipe', 'inherit'],
-  });
-  let stdout = '';
-  const timer = setTimeout(() => proc.kill('SIGTERM'), 60_000);
-  proc.stdout.on('data', (c) => { stdout += c.toString('utf8'); });
-  proc.on('exit', (code) => {
-    clearTimeout(timer);
-    if (code !== 0 || !stdout) {
-      res.writeHead(502, { 'content-type': 'application/json' });
-      res.end(JSON.stringify({ error: 'panel compute failed', code })); return;
+  const key = body;
+  const cached = panelsCache.get(key);
+  if (cached && Date.now() - cached.ts < PANELS_TTL_MS) {
+    res.writeHead(200, { 'content-type': 'application/json', 'x-cache': 'HIT' });
+    res.end(cached.body); return;
+  }
+  let job = panelsInflight.get(key);
+  if (!job) {
+    job = computePanels(key).finally(() => panelsInflight.delete(key));
+    panelsInflight.set(key, job);
+  }
+  try {
+    const out = await job;
+    let isErr = false;
+    try { isErr = !!JSON.parse(out).error; } catch { /* keep */ }
+    if (!isErr) {
+      panelsCache.set(key, { ts: Date.now(), body: out });
+      if (panelsCache.size > PANELS_MAX) panelsCache.delete(panelsCache.keys().next().value);
     }
-    res.writeHead(200, { 'content-type': 'application/json' });
-    res.end(stdout);
-  });
-  proc.stdin.write(body);
-  proc.stdin.end();
+    res.writeHead(200, { 'content-type': 'application/json', 'x-cache': 'MISS' });
+    res.end(out);
+  } catch {
+    res.writeHead(502, { 'content-type': 'application/json' });
+    res.end(JSON.stringify({ error: 'panel compute failed' }));
+  }
 }
 
 async function handleEventAutopick(req, res) {
