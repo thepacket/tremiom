@@ -94,8 +94,23 @@ export function mountAnalysisPanels(parent: HTMLElement): AnalysisPanelsHandle {
   // Fetch newly-revealed panels as the strip is scrolled.
   root.addEventListener('scroll', scheduleFetch, { passive: true });
 
+  // Match a canvas's backing store to its displayed size. The ResizeObserver
+  // misses the hidden→shown transition for the Event/History strips (they
+  // start hidden at load), so size on render too, or the canvas stays at its
+  // default 300×150 and line panels draw outside it.
+  function ensureSize(c: { canvas: HTMLCanvasElement; ctx: CanvasRenderingContext2D }) {
+    const dpr = window.devicePixelRatio || 1;
+    const w = Math.max(1, Math.floor(c.canvas.clientWidth * dpr));
+    const h = Math.max(1, Math.floor(c.canvas.clientHeight * dpr));
+    if (c.canvas.width !== w || c.canvas.height !== h) {
+      c.canvas.width = w; c.canvas.height = h;
+      c.ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+    }
+  }
+
   function placeholder(id: string, msg: string) {
     const c = cells.get(id); if (!c) return;
+    ensureSize(c);
     const w = c.canvas.clientWidth, h = c.canvas.clientHeight;
     c.ctx.fillStyle = '#0d0d0d'; c.ctx.fillRect(0, 0, w, h);
     c.ctx.fillStyle = '#8a8a8a'; c.ctx.font = '12px ui-sans-serif, system-ui, sans-serif';
@@ -105,6 +120,7 @@ export function mountAnalysisPanels(parent: HTMLElement): AnalysisPanelsHandle {
 
   function redraw(id: string) {
     const c = cells.get(id); if (!c) return;
+    ensureSize(c);
     const fr = lastFrames[id];
     if (!fr) { placeholder(id, '—'); return; }
     const tagged = { ...fr, station: `hist:${lastNslc}` };
