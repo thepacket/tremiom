@@ -16,13 +16,10 @@ import { openSettings } from './settings';
 import { openHelp } from './help';
 import { openAbout } from './about';
 import { initTooltips } from './tooltip';
-import { mountDashboard, type DashboardHandle } from './dashboard';
-import { mountDashboardBar } from './dashboard-bar';
-import { mountPanelPicker } from './panel-picker';
+import { mountDashboard, type DashboardHandle, clampPerRow } from './dashboard';
 import { mountAlertPicker } from './alert-picker';
 import { alerts } from './alerts';
 import { feedNetwork, resetNetwork, networkGroup } from '../panels/network';
-import { pinTrace } from '../panels/clipboard';
 import type { SeismicEvent } from '../data/events';
 
 export function mountApp(root: HTMLElement, version: string): void {
@@ -47,10 +44,17 @@ export function mountApp(root: HTMLElement, version: string): void {
       <button class="settings-btn" id="settings-btn" title="Settings" aria-label="Settings">⚙</button>
     </div>
     <div class="topbar-row">
-      <span id="panel-picker-mount"></span>
-      <span class="topbar-label">Dashboard</span>
-      <span id="dashboard-bar-mount"></span>
-      <button class="pin-btn" id="pin-btn" title="Pin current trace to the Wave clipboard">📌 Pin</button>
+      <span class="topbar-label">Panels per row</span>
+      <select id="per-row" class="per-row-input" title="Panels per row">
+        <option>1</option><option>2</option><option>3</option>
+        <option>4</option><option>5</option><option>6</option>
+      </select>
+      <span class="topbar-label">Height</span>
+      <select id="panel-height" class="per-row-input" title="Panel height (px)">
+        <option>100</option><option>150</option><option>200</option><option>250</option>
+        <option>300</option><option>350</option><option>400</option><option>450</option>
+      </select>
+      <button class="refresh-btn" id="refresh-btn" title="Redraw all panels with the current settings">Refresh</button>
       <span class="topbar-label">Alerts</span>
       <span id="alert-picker-mount"></span>
       <span class="topbar-label">Mode</span>
@@ -108,7 +112,6 @@ export function mountApp(root: HTMLElement, version: string): void {
   const subscribedAt = Date.now();
   let currentFilter: FilterSpec = DEFAULT_FILTER;
   let currentUnits: string = DEFAULT_UNITS;
-  let latestRawScope: { windowS?: number; unit?: string; data: number[] } | null = null;
 
   // Drum overlay state — events + station coords for predicted-arrival markers.
   let currentEvents: SeismicEvent[] = [];
@@ -142,7 +145,7 @@ export function mountApp(root: HTMLElement, version: string): void {
   mainArea.className = 'main-area';
   body.appendChild(mainArea);
 
-  // Live mode container — the gridstack dashboard mounts inside.
+  // Live mode container — the panel grid mounts inside.
   const dashHost = document.createElement('div');
   dashHost.className = 'dash-host';
   mainArea.appendChild(dashHost);
@@ -179,9 +182,6 @@ export function mountApp(root: HTMLElement, version: string): void {
     // separate per-group-station rsam subscriptions below).
     const set = new Set(activePanels.filter((p) => p !== 'network'));
     if (alerts.isEnabled()) set.add('sta-lta');
-    // Clipboard pins raw-scope snapshots, so keep that stream live while
-    // the clipboard panel is mounted even if raw-scope isn't displayed.
-    if (activePanels.includes('clipboard')) set.add('raw-scope');
     return [...set];
   }
   function resubscribe() {
@@ -201,11 +201,40 @@ export function mountApp(root: HTMLElement, version: string): void {
     resubscribe();
   }
   let clientReady = false;
+  const PER_ROW_KEY = 'tremiom-panels-per-row';
+  const HEIGHT_KEY = 'tremiom-panel-height';
+  const HEIGHT_OPTIONS = [100, 150, 200, 250, 300, 350, 400, 450];
+  const initialPerRow = clampPerRow(Number(localStorage.getItem(PER_ROW_KEY)) || 2);
+  const initialHeight = HEIGHT_OPTIONS.includes(Number(localStorage.getItem(HEIGHT_KEY)))
+    ? Number(localStorage.getItem(HEIGHT_KEY)) : 200;
   const dashboard: DashboardHandle = mountDashboard(dashHost, {
     onActiveChanged,
     stationName: () => currentStation,
+    perRow: initialPerRow,
+    height: initialHeight,
   });
   activePanels = dashboard.activePanels();
+
+  // "Panels per row" controls how many panels appear per grid row.
+  const perRowInput = document.getElementById('per-row') as HTMLSelectElement;
+  perRowInput.value = String(initialPerRow);
+  perRowInput.addEventListener('change', () => {
+    const n = clampPerRow(Number(perRowInput.value));
+    perRowInput.value = String(n);
+    dashboard.setPerRow(n);
+    localStorage.setItem(PER_ROW_KEY, String(n));
+  });
+
+  // "Height" controls the pixel height of each panel row.
+  const heightInput = document.getElementById('panel-height') as HTMLSelectElement;
+  heightInput.value = String(initialHeight);
+  heightInput.addEventListener('change', () => {
+    const px = Number(heightInput.value);
+    dashboard.setHeight(px);
+    localStorage.setItem(HEIGHT_KEY, String(px));
+  });
+
+  document.getElementById('refresh-btn')?.addEventListener('click', () => dashboard.refresh());
 
   // ── Transport ───────────────────────────────────────────────────────
   const client = new TremiomClient({
@@ -229,11 +258,6 @@ export function mountApp(root: HTMLElement, version: string): void {
         dashboard.setFrame('network', frame); // trigger a redraw
       }
       if (fstation !== currentStation) return;
-      // Remember the latest raw-scope frame so the Pin button can
-      // snapshot it into the wave clipboard.
-      if (panelId === 'raw-scope') {
-        latestRawScope = frame as { windowS?: number; unit?: string; data: number[] };
-      }
       if (firstFrameAt === null) {
         firstFrameAt = Date.now();
         const el = document.getElementById('conn');
@@ -421,20 +445,6 @@ export function mountApp(root: HTMLElement, version: string): void {
     historyView.refresh();
   });
 
-  const panelPickerMount = document.getElementById('panel-picker-mount')!;
-  mountPanelPicker(panelPickerMount, {
-    isActive: (id) => activePanels.includes(id),
-    onAdd:    (id) => dashboard.addPanel(id),
-    onRemove: (id) => dashboard.removePanel(id),
-    onReset:  () => dashboard.resetLayout(),
-  });
-
-  const dashBarMount = document.getElementById('dashboard-bar-mount')!;
-  mountDashboardBar(dashBarMount, dashboard);
-
-  // Place the PANELS button just to the right of the dashboard PDF button.
-  dashBarMount.querySelector('[data-act="pdf"]')!.after(panelPickerMount);
-
   const alertMount = document.getElementById('alert-picker-mount')!;
   mountAlertPicker(alertMount, () => resubscribe());
 
@@ -463,18 +473,6 @@ export function mountApp(root: HTMLElement, version: string): void {
     setInterval(tick, 1000);
   }
 
-  document.getElementById('pin-btn')?.addEventListener('click', () => {
-    if (!latestRawScope?.data?.length) return;
-    pinTrace({
-      station: currentStation,
-      capturedMs: Date.now(),
-      windowS: latestRawScope.windowS ?? 10,
-      unit: latestRawScope.unit ?? 'counts',
-      data: latestRawScope.data.slice(),
-    });
-    // If the clipboard panel is up, nudge it to redraw immediately.
-    dashboard.setFrame('clipboard', {});
-  });
 
   // Initial overlay + subscription. mountDashboard didn't fire
   // onActiveChanged during construction (would TDZ-crash on `client`),

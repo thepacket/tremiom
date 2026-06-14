@@ -9,7 +9,7 @@
 
 import { APP_VERSION } from '../version';
 
-/** Per-panel teaching content. Keyed by panel registry id (+ "markdown"). */
+/** Per-panel teaching content. Keyed by panel registry id. */
 interface PanelHelp { id: string; title: string; what: string; read: string; use: string; }
 
 export const PANEL_HELP: PanelHelp[] = [
@@ -172,25 +172,6 @@ export const PANEL_HELP: PanelHelp[] = [
       frequent gaps mean telemetry trouble; a daily RMS that's flat-zero or railed
       means a dead or clipped sensor.`,
   },
-  {
-    id: 'clipboard', title: 'Wave clipboard',
-    what: `A scratch panel holding trace snapshots you've pinned (📌 Pin), so you can
-      compare waveforms from different stations or times side by side.`,
-    read: `Each pinned snapshot is drawn as its own labeled trace.`,
-    use: `Pin a trace now, switch station or time, pin another, and compare — useful for
-      checking whether a feature appears on multiple stations, or comparing an event
-      against a quiet reference window.`,
-  },
-  {
-    id: 'markdown', title: 'Note (markdown)',
-    what: `An editable markdown panel for annotations — observations, an event log, a
-      to-do list — saved with the dashboard. Add as many as you like via the
-      <b>Notes</b> entry in the PANELS picker.`,
-    read: `Rendered markdown; click ✎ in its header to edit, click again to render.`,
-    use: `Keep context next to the data: note what you were watching, flag an event for
-      follow-up, or write a shift handover. Notes travel with the dashboard when you
-      export it to JSON.`,
-  },
 ];
 
 interface HelpSection { id: string; title: string; html: string; }
@@ -206,8 +187,8 @@ const SECTIONS: HelpSection[] = [
 
       <h3>Three modes</h3>
       <ul>
-        <li><b>Live</b> (default) — the configurable dashboard of panels for the
-          selected station, updating ~1/s.</li>
+        <li><b>Live</b> (default) — the grid of panels for the selected station,
+          updating ~1/s.</li>
         <li><b>Event</b> — click any earthquake in the sidebar or map to open a
           record section of the nearest stations with predicted arrivals.</li>
         <li><b>History</b> — pull any station over any time window and
@@ -222,11 +203,8 @@ const SECTIONS: HelpSection[] = [
           (1–20 Hz), teleseismic (0.5–2 Hz), microseism, surface waves…</td></tr>
         <tr><td><b>units</b></td><td>Remove the instrument response: counts, velocity
           (m/s), displacement (m), acceleration, or Wood-Anderson (mm).</td></tr>
-        <tr><td><b>PANELS</b></td><td>Add/remove panels (including <b>Notes</b> markdown);
-          reset the layout.</td></tr>
-        <tr><td><b>Dashboard ▾</b></td><td>Switch dashboards. <b>+</b> new, <b>✎</b>
-          rename, <b>−</b> delete, <b>⤓ JSON / ⤒ Import</b> share, <b>⤓ PDF</b> print.</td></tr>
-        <tr><td><b>📌 Pin</b></td><td>Snapshot the current trace into the Wave clipboard.</td></tr>
+        <tr><td><b>Per row</b></td><td>How many panels appear per row in the grid (1–6).
+          Every panel is shown, in alphabetical order.</td></tr>
         <tr><td><b>🔔</b></td><td>STA/LTA trigger alerts: toggle + set a threshold;
           fires a notification + banner when crossed.</td></tr>
         <tr><td><b>Mode ▾</b></td><td>Switch between <b>Live</b>, <b>History</b>
@@ -253,12 +231,12 @@ const SECTIONS: HelpSection[] = [
       24 h and every panel starts updating ~1/s.</p>
 
       <h3>2 · Read the panels</h3>
-      <p>The default dashboard pairs complementary views: the drum for a
+      <p>Every panel is shown in one grid, alphabetically: the drum for a
       day-at-a-glance, spectrogram + spectrum for frequency content, PSD/PPSD for
       noise character, STA/LTA + RSAM for energy, and scope/3-component/particle
       motion for waveform shape. Click the <b>?</b> on any panel header to jump to
       its full entry in <b>Panel Reference</b> (what it is, how to read it, how to
-      use it).</p>
+      use it), or <b>⤓</b> to save it as a PNG.</p>
 
       <h3>3 · Filter and change units</h3>
       <p>Set <b>filter</b> to a band (e.g. <i>local quake 1–20 Hz</i>) and watch
@@ -266,12 +244,10 @@ const SECTIONS: HelpSection[] = [
       to remove the instrument response and see real ground motion instead of raw
       counts.</p>
 
-      <h3>4 · Customize the dashboard</h3>
-      <p>Drag a panel by its <b>header</b> to move it; drag any edge or corner to
-      resize. Use <b>PANELS</b> to add or remove panels — including the <b>Notes</b>
-      markdown scratchpad. Layout autosaves per dashboard. Create more
-      dashboards with the <b>Dashboard ▾</b> menu, and share one via <b>⤓ JSON</b>
-      / <b>⤒ Import</b> or print it with <b>⤓ PDF</b>.</p>
+      <h3>4 · Adjust the layout</h3>
+      <p>Use the <b>Per row</b> dropdown to set how many panels appear per row
+      (1–6); the grid reflows and the choice is remembered. Every panel is always
+      shown, in alphabetical order.</p>
 
       <h3>5 · Explore an earthquake (Event mode)</h3>
       <p>Click any event in the sidebar list or on the world map to open the

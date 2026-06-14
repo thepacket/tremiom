@@ -7,7 +7,7 @@ import {
  *  The classic 24-h drum display lands in a later version. */
 export const helicorder: PanelDef = {
   id: 'helicorder',
-  label: 'Helicorder',
+  label: 'Helicorder (60 s)',
   category: 'live',
   serverWorker: 'panels.helicorder',
   render(ctx, canvas, frame) {
