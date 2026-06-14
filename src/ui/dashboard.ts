@@ -23,6 +23,7 @@ export interface DashboardHandle {
 
 interface Mounted {
   def: PanelDef;
+  el: HTMLElement;
   canvas: HTMLCanvasElement;
   ctx: CanvasRenderingContext2D;
   lastFrame?: unknown;
@@ -79,8 +80,9 @@ export function mountDashboard(
     panelEl.appendChild(canvas);
     grid.appendChild(panelEl);
 
+    panelEl.dataset.panelId = id;
     const ctx = canvas.getContext('2d')!;
-    const m: Mounted = { def, canvas, ctx };
+    const m: Mounted = { def, el: panelEl, canvas, ctx };
     mounted.set(id, m);
 
     panelEl.querySelector('.panel-help')!.addEventListener('click', () => openHelp(id));
@@ -109,9 +111,24 @@ export function mountDashboard(
     }, 'image/png');
   }
 
-  // Deferred so the caller (app.ts) can wire its client before the first
-  // subscription fires — mirrors the old mountDashboard contract.
-  void opts; // onActiveChanged is driven by the caller's explicit init subscribe.
+  // Only the panels actually on-screen are "active" (subscribed). With every
+  // panel always in the grid, computing all of them — especially the Network
+  // panel's 6-station 24-h backfill fan-out — would swamp the server. An
+  // IntersectionObserver tracks which panels are visible and the caller
+  // re-subscribes to just those (panels hidden in Event/History mode, or
+  // scrolled off-screen, drop out). `rootMargin` preloads slightly early.
+  const visible = new Set<string>();
+  let notifyTimer: number | undefined;
+  const io = new IntersectionObserver((entries) => {
+    for (const e of entries) {
+      const id = (e.target as HTMLElement).dataset.panelId;
+      if (!id) continue;
+      if (e.isIntersecting) visible.add(id); else visible.delete(id);
+    }
+    clearTimeout(notifyTimer);
+    notifyTimer = window.setTimeout(() => opts.onActiveChanged([...visible]), 200);
+  }, { root: null, rootMargin: '200px 0px' });
+  for (const m of mounted.values()) io.observe(m.el);
 
   return {
     setFrame(panelType, frame) {
@@ -126,7 +143,7 @@ export function mountDashboard(
         if (!panelType || id === panelType) { m.lastFrame = null; m.def.render(m.ctx, m.canvas, null); }
       }
     },
-    activePanels: () => [...mounted.keys()],
+    activePanels: () => [...visible],
     setPerRow(n) { document.documentElement.style.setProperty('--per-row', String(clampPerRow(n))); },
     setHeight(px) { document.documentElement.style.setProperty('--panel-h', `${px}px`); },
     refresh() {
