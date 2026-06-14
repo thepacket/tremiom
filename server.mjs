@@ -652,9 +652,11 @@ async function handleWaveform(req, res) {
   }
   try {
     // Route through the warm worker (op: 'waveform') when available, so each
-    // pan/zoom skips the ObsPy import + FDSN handshake cold-start.
+    // pan/zoom skips the ObsPy import + FDSN handshake cold-start. Fall back
+    // to a one-shot spawn if the warm worker is down or errors.
     const out = panelWorker
       ? await requestPanelsWarm(JSON.stringify({ ...parsed, op: 'waveform' }))
+          .catch(() => computeWaveform(body))
       : await computeWaveform(body);
     res.writeHead(200, { 'content-type': 'application/json' });
     res.end(out);
@@ -764,7 +766,9 @@ async function handleWaveformPanels(req, res) {
   }
   let job = panelsInflight.get(key);
   if (!job) {
-    job = (panelWorker ? requestPanelsWarm(key) : computePanels(key))
+    // Warm worker when available; fall back to a one-shot spawn if it's
+    // down or errors, so a flaky worker never means "no data".
+    job = (panelWorker ? requestPanelsWarm(key).catch(() => computePanels(key)) : computePanels(key))
       .finally(() => panelsInflight.delete(key));
     panelsInflight.set(key, job);
   }
