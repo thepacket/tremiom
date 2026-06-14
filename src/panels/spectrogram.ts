@@ -4,6 +4,7 @@ import {
   drawFrame, drawYCaption, niceStep, plotBounds,
 } from './axes';
 import { viridis } from './colormap';
+import { equalizeColumns } from './contrast';
 
 /** Spectrogram — sliding STFT columns. Server sends one column per frame
  *  with dB values and a frequency axis. v0.1 keeps the last N columns in
@@ -61,12 +62,15 @@ export const spectrogram: PanelDef = {
     const colW = pb.width / cols;
     const rowH = pb.height / bins;
 
-    // Auto-range from the accumulated ring. Raw IRIS counts give PSD
-    // values in the tens of dB (positive), so a fixed range can't work
-    // across instrument-response-free streams. Trim 2% from each tail
-    // to keep outliers from washing out contrast.
-    const [dbMin, dbMax] = percentileRange(ring, 0.02, 0.98);
-    const dbSpan = Math.max(1e-3, dbMax - dbMin);
+    // Auto-range from the accumulated ring via histogram equalization.
+    // Raw IRIS counts give PSD values in the tens of dB (positive), so a
+    // fixed range can't work across instrument-response-free streams; and
+    // a plain linear stretch wastes the colormap on the lopsided seismic
+    // PSD histogram (dense noise floor + sparse energetic bins). The
+    // equalizer maps values through the CDF so contrast follows where the
+    // data actually lives. dbMin/dbMax are the trimmed range it covers.
+    const eq = equalizeColumns(ring.map((r) => r.data));
+    const dbMin = eq.lo, dbMax = eq.hi;
 
     // Render the heat-map columns inside the plot area.
     for (let x = 0; x < cols; x++) {
@@ -74,7 +78,7 @@ export const spectrogram: PanelDef = {
       const px = pb.left + x * colW;
       for (let b = 0; b < bins; b++) {
         const db = col[b];
-        const n = Math.max(0, Math.min(1, (db - dbMin) / dbSpan));
+        const n = eq.norm(db);
         ctx.fillStyle = viridis(n);
         const py = pb.top + pb.height - (b + 1) * rowH;
         ctx.fillRect(px, py, Math.ceil(colW), Math.ceil(rowH));
@@ -124,25 +128,6 @@ export const spectrogram: PanelDef = {
 
 // Keep the unused-import linter satisfied.
 void AXIS_PAD;
-
-/** Approximate p-percentile range over the dB values in the ring. */
-function percentileRange(ring: SpectrogramFrame[], pLo: number, pHi: number): [number, number] {
-  // Sub-sample to keep the sort affordable when the ring is full.
-  const samples: number[] = [];
-  const stride = Math.max(1, Math.floor((ring.length * (ring[0]?.data.length ?? 1)) / 4096));
-  let i = 0;
-  for (const c of ring) {
-    for (const v of c.data) {
-      if (i++ % stride === 0) samples.push(v);
-    }
-  }
-  if (!samples.length) return [-1, 1];
-  samples.sort((a, b) => a - b);
-  const lo = samples[Math.floor(samples.length * pLo)];
-  const hi = samples[Math.floor(samples.length * pHi)];
-  if (hi - lo < 1) return [lo - 0.5, hi + 0.5];
-  return [lo, hi];
-}
 
 function drawPlaceholder(ctx: CanvasRenderingContext2D, w: number, h: number, msg: string) {
   ctx.fillStyle = '#8a8a8a';

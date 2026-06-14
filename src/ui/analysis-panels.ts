@@ -13,6 +13,7 @@ import { threeComp } from '../panels/three-comp';
 import { particleMotion } from '../panels/particle-motion';
 import { hv } from '../panels/hv';
 import { viridis } from '../panels/colormap';
+import { equalizeColumns } from '../panels/contrast';
 import { COLOR_LABEL, Y_TICK_LABEL_RIGHT_OFFSET, drawFrame, drawYCaption, niceStep, plotBounds } from '../panels/axes';
 import type { FilterSpec } from '../data/filters';
 
@@ -202,13 +203,17 @@ function drawSpectrogram(
   const colW = pb.width / cols;
   const rowH = pb.height / bins;
 
-  const [dbMin, dbMax] = percentileRange(fr.columns, 0.02, 0.98);
-  const span = Math.max(1e-3, dbMax - dbMin);
+  // Histogram-equalize the dB distribution so contrast follows where the
+  // data actually lives (dense noise floor + sparse energetic bins),
+  // instead of a linear stretch that washes most of it out. dbMin/dbMax
+  // are the trimmed range the equalizer covers (shown in the readout).
+  const eq = equalizeColumns(fr.columns);
+  const dbMin = eq.lo, dbMax = eq.hi;
   for (let x = 0; x < cols; x++) {
     const col = fr.columns[x];
     const px = pb.left + x * colW;
     for (let b = 0; b < bins; b++) {
-      const n = Math.max(0, Math.min(1, (col[b] - dbMin) / span));
+      const n = eq.norm(col[b]);
       ctx.fillStyle = viridis(n);
       ctx.fillRect(px, pb.top + pb.height - (b + 1) * rowH, Math.ceil(colW), Math.ceil(rowH));
     }
@@ -231,17 +236,4 @@ function drawSpectrogram(
   ctx.fillText(`${dbMin.toFixed(0)} … ${dbMax.toFixed(0)} dB`, pb.right - 4, pb.top + 2);
   ctx.textAlign = 'left';
   ctx.fillText('time →', pb.left + 2, pb.top + 2);
-}
-
-function percentileRange(columns: number[][], pLo: number, pHi: number): [number, number] {
-  const samples: number[] = [];
-  const total = columns.length * (columns[0]?.length ?? 1);
-  const stride = Math.max(1, Math.floor(total / 4096));
-  let i = 0;
-  for (const col of columns) for (const v of col) { if (i++ % stride === 0) samples.push(v); }
-  if (!samples.length) return [-1, 1];
-  samples.sort((a, b) => a - b);
-  const lo = samples[Math.floor(samples.length * pLo)];
-  const hi = samples[Math.floor(samples.length * pHi)];
-  return hi - lo < 1 ? [lo - 0.5, hi + 0.5] : [lo, hi];
 }
