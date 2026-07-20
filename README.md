@@ -1,5 +1,7 @@
 # Tremiom
 
+## This project was parked for a while. I will soon come back to it. ##
+
 **A real-time and historical seismology workstation in your browser.**
 
 Tremiom streams live waveforms from thousands of global broadband stations,
