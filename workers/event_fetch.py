@@ -45,6 +45,7 @@ import json
 import math
 import os
 import sys
+from concurrent.futures import ThreadPoolExecutor
 from typing import Any
 
 # macOS framework Python ships without a usable CA bundle, so urllib
@@ -103,6 +104,95 @@ def fail(msg: str, **extra) -> None:
     sys.exit(0)
 
 
+def fetch_station(
+    fdsn,
+    station: dict[str, Any],
+    component: str,
+    event_lat: float,
+    event_lon: float,
+    win_start,
+    win_end,
+) -> tuple[dict[str, Any] | None, dict[str, str] | None]:
+    """Fetch and prepare one station.
+
+    This function has no shared mutable state, so separate stations can be
+    retrieved concurrently. The FDSN client is safe to share here because
+    each request creates its own urllib Request/response objects.
+    """
+    nslc = station["nslc"]
+    net, sta, loc, cha = nslc.split(".")
+    try:
+        if component in ("R", "T"):
+            # Rotate horizontals to radial/transverse. Fetch the two
+            # horizontals (N/E or 1/2), rotate by the station→event
+            # back-azimuth, and take the requested component.
+            from obspy.geodetics import gps2dist_azimuth
+            base = cha[:-1]
+            st = None
+            for a, b in (("N", "E"), ("1", "2")):
+                try:
+                    candidate = fdsn.get_waveforms(
+                        network=net, station=sta, location=loc,
+                        channel=f"{base}{a},{base}{b}",
+                        starttime=win_start, endtime=win_end,
+                    )
+                except Exception:
+                    candidate = None
+                if candidate and len(candidate) >= 2:
+                    st = candidate
+                    break
+            if st is None or len(st) < 2:
+                return None, {"nslc": nslc, "error": "no horizontal pair"}
+
+            # back-azimuth: azimuth from station to event (deg from N).
+            _, baz, _ = gps2dist_azimuth(
+                station["lat"], station["lon"], event_lat, event_lon
+            )
+            st.merge(method=0, fill_value="interpolate")
+            # rotate() needs channels labelled N/E. Relabel 1/2 → N/E
+            # first (approximate: most GSN 1/2 are within a few degrees
+            # of N/E; exact rotation would use the azimuth metadata).
+            for trace in st:
+                channel = trace.stats.channel
+                if channel.endswith("1"):
+                    trace.stats.channel = channel[:-1] + "N"
+                elif channel.endswith("2"):
+                    trace.stats.channel = channel[:-1] + "E"
+            st.rotate("NE->RT", back_azimuth=baz)
+            wanted = "R" if component == "R" else "T"
+            selected = st.select(component=wanted)
+            if not selected:
+                return None, {
+                    "nslc": nslc,
+                    "error": f"no {wanted} after rotate",
+                }
+            trace = selected[0]
+        else:
+            st = fdsn.get_waveforms(
+                network=net, station=sta, location=loc, channel=cha,
+                starttime=win_start, endtime=win_end,
+            )
+            if not st:
+                return None, {"nslc": nslc, "error": "empty stream"}
+            trace = st[0]
+
+        # Decimate to ~2000 points max for transport.
+        target = 2000
+        sample_count = len(trace.data)
+        decimate_by = max(1, sample_count // target)
+        return {
+            "nslc": nslc,
+            "lat": station["lat"], "lon": station["lon"],
+            "distKm": station["distKm"], "distDeg": station["distDeg"],
+            "t0Ms": int(trace.stats.starttime.timestamp * 1000),
+            "sr": float(trace.stats.sampling_rate) / decimate_by,
+            "decimateBy": decimate_by,
+            "data": trace.data[::decimate_by].tolist(),
+        }, None
+    except Exception as exc:
+        return None, {"nslc": nslc, "error": repr(exc)}
+
+
 def main() -> None:
     try:
         req = json.loads(sys.stdin.read())
@@ -151,80 +241,39 @@ def main() -> None:
 
     fdsn = FdsnClient("EARTHSCOPE", timeout=30)
 
+    # Network I/O dominates this worker. Fetch independent stations in a
+    # bounded pool instead of waiting for each station's timeout serially.
+    # executor.map preserves nearest-station ordering in the response.
+    try:
+        configured_workers = int(os.environ.get("TREMIOM_EVENT_FETCH_WORKERS", "6"))
+    except ValueError:
+        configured_workers = 6
+    max_workers = max(1, min(configured_workers, len(chosen) or 1))
+    with ThreadPoolExecutor(max_workers=max_workers) as executor:
+        results = list(executor.map(
+            lambda station: fetch_station(
+                fdsn, station, component, lat, lon, win_start, win_end
+            ),
+            chosen,
+        ))
+
     out_stations = []
     errors = []
-    for s in chosen:
-        nslc = s["nslc"]
-        net, sta, loc, cha = nslc.split(".")
-        # FDSN dataselect; restitute later if needed.
-        try:
-            if component in ("R", "T"):
-                # Rotate horizontals to radial/transverse. Fetch the two
-                # horizontals (N/E or 1/2), rotate by the station→event
-                # back-azimuth, and take the requested component.
-                from obspy.geodetics import gps2dist_azimuth
-                base = cha[:-1]
-                horiz = None
-                st = None
-                for a, b in (("N", "E"), ("1", "2")):
-                    try:
-                        cand = fdsn.get_waveforms(network=net, station=sta, location=loc,
-                                                  channel=f"{base}{a},{base}{b}",
-                                                  starttime=win_start, endtime=win_end)
-                    except Exception:
-                        cand = None
-                    if cand and len(cand) >= 2:
-                        st = cand; horiz = (a, b); break
-                if horiz is None or st is None or len(st) < 2:
-                    errors.append({"nslc": nslc, "error": "no horizontal pair"})
-                    continue
-                # back-azimuth: azimuth from station to event (deg from N).
-                _, baz, _ = gps2dist_azimuth(s["lat"], s["lon"], lat, lon)
-                st.merge(method=0, fill_value="interpolate")
-                # rotate() needs channels labelled N/E. Relabel 1/2 → N/E
-                # first (approximate: most GSN 1/2 are within a few degrees
-                # of N/E; exact rotation would use the azimuth metadata).
-                for tr0 in st:
-                    ch0 = tr0.stats.channel
-                    if ch0.endswith("1"):
-                        tr0.stats.channel = ch0[:-1] + "N"
-                    elif ch0.endswith("2"):
-                        tr0.stats.channel = ch0[:-1] + "E"
-                st.rotate("NE->RT", back_azimuth=baz)
-                want = "R" if component == "R" else "T"
-                sel = st.select(component=want)
-                if not sel:
-                    errors.append({"nslc": nslc, "error": f"no {want} after rotate"})
-                    continue
-                tr = sel[0]
-            else:
-                st = fdsn.get_waveforms(
-                    network=net, station=sta, location=loc, channel=cha,
-                    starttime=win_start, endtime=win_end,
-                )
-                if not st:
-                    errors.append({"nslc": nslc, "error": "empty stream"})
-                    continue
-                tr = st[0]
-        except Exception as e:
-            errors.append({"nslc": nslc, "error": repr(e)})
+    for station, (waveform, error) in zip(chosen, results):
+        if error is not None:
+            errors.append(error)
+            continue
+        if waveform is None:
             continue
 
-        # Decimate to ~2000 points max for transport.
-        target = 2000
-        n = len(tr.data)
-        decimate_by = max(1, n // target)
-        data = tr.data[::decimate_by].tolist()
-        sr = float(tr.stats.sampling_rate) / decimate_by
-        t0_ms = int(tr.stats.starttime.timestamp * 1000)
-
-        # P / S arrivals from TauP for this distance and depth.
+        # TauP is local CPU work and fast; keep it on the main thread rather
+        # than relying on the model internals being thread-safe.
         p_s = s_s = None
         if taup is not None:
             try:
                 arrivals = taup.get_travel_times(
                     source_depth_in_km=depth_km,
-                    distance_in_degree=s["distDeg"],
+                    distance_in_degree=station["distDeg"],
                     phase_list=["P", "p", "S", "s"],
                 )
                 for a in arrivals:
@@ -236,15 +285,9 @@ def main() -> None:
             except Exception:
                 pass
 
-        out_stations.append({
-            "nslc": nslc,
-            "lat": s["lat"], "lon": s["lon"],
-            "distKm": s["distKm"], "distDeg": s["distDeg"],
-            "pArrivalS": p_s, "sArrivalS": s_s,
-            "t0Ms": t0_ms, "sr": sr,
-            "decimateBy": decimate_by,
-            "data": data,
-        })
+        waveform["pArrivalS"] = p_s
+        waveform["sArrivalS"] = s_s
+        out_stations.append(waveform)
 
     out = {
         "eventId": event_id,

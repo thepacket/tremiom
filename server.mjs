@@ -450,6 +450,7 @@ async function handleUsgs(req, res) {
 // reloading or re-clicking the same event doesn't refetch from IRIS.
 
 const eventCache = new Map(); // eventId -> { ts, body }
+const eventInflight = new Map(); // eventId -> Promise<string>
 const EVENT_TTL_MS = 5 * 60_000;
 const EVENT_TIMEOUT_MS = 90_000;
 
@@ -971,6 +972,25 @@ async function handleEventExport(req, res) {
   proc.stdin.end();
 }
 
+function fetchEventWaveforms(body) {
+  return new Promise((resolve, reject) => {
+    const proc = spawn(PYTHON, ['workers/event_fetch.py'], {
+      stdio: ['pipe', 'pipe', 'inherit'],
+    });
+    let stdout = '';
+    const timer = setTimeout(() => proc.kill('SIGTERM'), EVENT_TIMEOUT_MS);
+    proc.stdout.on('data', (c) => { stdout += c.toString('utf8'); });
+    proc.on('error', reject);
+    proc.on('exit', (code) => {
+      clearTimeout(timer);
+      if (code === 0 && stdout) resolve(stdout);
+      else reject(new Error(`event_fetch failed (code ${code})`));
+    });
+    proc.stdin.write(body);
+    proc.stdin.end();
+  });
+}
+
 async function handleEventFetch(req, res) {
   if (req.method !== 'POST') {
     res.writeHead(405); res.end(); return;
@@ -997,26 +1017,28 @@ async function handleEventFetch(req, res) {
       res.end(c.body); return;
     }
   }
-  // Spawn the Python one-shot.
-  const proc = spawn(PYTHON, ['workers/event_fetch.py'], {
-    stdio: ['pipe', 'pipe', 'inherit'],
-  });
-  let stdout = '';
-  const timer = setTimeout(() => proc.kill('SIGTERM'), EVENT_TIMEOUT_MS);
-  proc.stdout.on('data', (c) => { stdout += c.toString('utf8'); });
-  proc.on('exit', (code) => {
-    clearTimeout(timer);
-    if (code !== 0) {
-      res.writeHead(502, { 'content-type': 'application/json' });
-      res.end(JSON.stringify({ error: 'event_fetch failed', code }));
-      return;
+  // Coalesce matching requests that arrive before the first one fills the
+  // cache. This avoids duplicate Python workers and duplicate FDSN traffic.
+  let job = eventId ? eventInflight.get(eventId) : null;
+  if (!job) {
+    job = fetchEventWaveforms(body);
+    if (eventId) {
+      eventInflight.set(eventId, job);
+      job.finally(() => eventInflight.delete(eventId)).catch(() => {});
     }
-    if (eventId) eventCache.set(eventId, { ts: Date.now(), body: stdout });
+  }
+  try {
+    const output = await job;
+    if (eventId) eventCache.set(eventId, { ts: Date.now(), body: output });
     res.writeHead(200, { 'content-type': 'application/json', 'x-cache': 'MISS' });
-    res.end(stdout);
-  });
-  proc.stdin.write(body);
-  proc.stdin.end();
+    res.end(output);
+  } catch (error) {
+    res.writeHead(502, { 'content-type': 'application/json' });
+    res.end(JSON.stringify({
+      error: 'event_fetch failed',
+      detail: String(error?.message || error),
+    }));
+  }
 }
 
 // ─── FDSN station search ──────────────────────────────────────────────────
