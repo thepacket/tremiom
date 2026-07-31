@@ -7,6 +7,15 @@
  */
 
 import { APP_VERSION } from '../version';
+import {
+  cachedOpenRouterModels,
+  clearOpenRouterSettings,
+  getOpenRouterSettings,
+  loadOpenRouterModels,
+  modelSupportsText,
+  setOpenRouterSettings,
+  type OpenRouterModel,
+} from '../ai/openrouter';
 
 interface AuthStatus {
   required: boolean;
@@ -57,6 +66,38 @@ export function openSettings(): void {
                      autocomplete="current-password" spellcheck="false">
               <button type="submit">Apply</button>
             </form>
+          </div>
+        </div>
+        <hr class="settings-sep">
+        <div class="setting-section-title">AI · OpenRouter</div>
+        <div class="setting-help">
+          The API key is kept in this tab's browser <code>sessionStorage</code>
+          and sent directly to <code>openrouter.ai</code>. Tremiom's server
+          never receives it. Closing the tab clears the key, selected model,
+          and AI conversation.
+        </div>
+        <div class="setting-row">
+          <div class="setting-label">API key</div>
+          <div class="setting-value">
+            <input type="password" id="or-api-key" placeholder="sk-or-v1-…"
+                   spellcheck="false" autocomplete="off" class="sl-input">
+          </div>
+        </div>
+        <div class="setting-row">
+          <div class="setting-label">Model</div>
+          <div class="setting-value ai-model-setting">
+            <select id="or-model" class="sl-input" disabled>
+              <option value="">Load OpenRouter models…</option>
+            </select>
+            <button type="button" id="or-load-models" class="secondary">Refresh models</button>
+          </div>
+        </div>
+        <div class="setting-row">
+          <div class="setting-label"></div>
+          <div class="setting-value">
+            <button type="button" id="or-save" class="primary">Save AI settings</button>
+            <button type="button" id="or-clear" class="secondary">Clear</button>
+            <span id="or-status" class="muted"></span>
           </div>
         </div>
         <hr class="settings-sep">
@@ -128,6 +169,98 @@ export function openSettings(): void {
     .catch((e) => {
       stateEl.innerHTML = `<span class="bad">status check failed:</span> ${escapeHtml(String(e))}`;
     });
+
+  // ── OpenRouter browser-session config ──────────────────────────────
+  const orKey    = backdrop.querySelector('#or-api-key') as HTMLInputElement;
+  const orModel  = backdrop.querySelector('#or-model') as HTMLSelectElement;
+  const orLoad   = backdrop.querySelector('#or-load-models') as HTMLButtonElement;
+  const orSave   = backdrop.querySelector('#or-save') as HTMLButtonElement;
+  const orClear  = backdrop.querySelector('#or-clear') as HTMLButtonElement;
+  const orStatus = backdrop.querySelector('#or-status') as HTMLElement;
+  const savedOpenRouter = getOpenRouterSettings();
+  orKey.value = savedOpenRouter.apiKey;
+
+  function setOrStatus(text: string, cls: 'ok' | 'bad' | 'muted' = 'muted'): void {
+    orStatus.className = cls;
+    orStatus.textContent = text;
+  }
+
+  function modelLabel(model: OpenRouterModel): string {
+    const context = model.context_length ? ` · ${Math.round(model.context_length / 1000)}k` : '';
+    const prompt = Number(model.pricing?.prompt);
+    const completion = Number(model.pricing?.completion);
+    const pricing = Number.isFinite(prompt) && Number.isFinite(completion)
+      ? ` · $${(prompt * 1_000_000).toFixed(2)}/$${(completion * 1_000_000).toFixed(2)} per M`
+      : '';
+    const nonText = modelSupportsText(model) ? '' : ' · non-text';
+    return `${model.name} — ${model.id}${context}${pricing}${nonText}`;
+  }
+
+  function populateModels(models: OpenRouterModel[], selected: string): void {
+    orModel.innerHTML = '';
+    const byProvider = new Map<string, OpenRouterModel[]>();
+    for (const model of models) {
+      const provider = model.id.split('/')[0] || 'other';
+      const group = byProvider.get(provider) || [];
+      group.push(model); byProvider.set(provider, group);
+    }
+    for (const [provider, group] of [...byProvider].sort(([a], [b]) => a.localeCompare(b))) {
+      const optgroup = document.createElement('optgroup');
+      optgroup.label = provider;
+      for (const model of group) {
+        const option = document.createElement('option');
+        option.value = model.id;
+        option.textContent = modelLabel(model);
+        option.disabled = !modelSupportsText(model);
+        option.title = model.description || model.id;
+        optgroup.appendChild(option);
+      }
+      orModel.appendChild(optgroup);
+    }
+    orModel.disabled = false;
+    if (selected && models.some((model) => model.id === selected && modelSupportsText(model))) {
+      orModel.value = selected;
+    } else {
+      const firstText = models.find(modelSupportsText);
+      if (firstText) orModel.value = firstText.id;
+    }
+    setOrStatus(`${models.length} models loaded`, 'ok');
+  }
+
+  async function refreshModels(force = false): Promise<void> {
+    orLoad.disabled = true;
+    orModel.disabled = true;
+    setOrStatus('loading model catalog…');
+    try {
+      const models = await loadOpenRouterModels(orKey.value.trim(), { force });
+      populateModels(models, getOpenRouterSettings().modelId);
+    } catch (error) {
+      setOrStatus((error as Error).message, 'bad');
+    } finally {
+      orLoad.disabled = false;
+    }
+  }
+
+  orLoad.addEventListener('click', () => void refreshModels(true));
+  orSave.addEventListener('click', () => {
+    const apiKey = orKey.value.trim();
+    const modelId = orModel.value;
+    if (!apiKey) { setOrStatus('API key is required', 'bad'); return; }
+    if (!modelId) { setOrStatus('load and select a text model', 'bad'); return; }
+    setOpenRouterSettings({ apiKey, modelId });
+    setOrStatus('saved for this browser tab', 'ok');
+  });
+  orClear.addEventListener('click', () => {
+    clearOpenRouterSettings();
+    orKey.value = '';
+    orModel.innerHTML = '<option value="">Load OpenRouter models…</option>';
+    orModel.disabled = true;
+    setOrStatus('AI settings cleared for this tab');
+  });
+
+  const cachedModels = cachedOpenRouterModels();
+  if (cachedModels.length) populateModels(cachedModels, savedOpenRouter.modelId);
+  else void refreshModels();
 
   // ── SeedLink upstream config ────────────────────────────────────────
   const slDefault  = backdrop.querySelector('#sl-default') as HTMLInputElement;

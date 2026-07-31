@@ -13,6 +13,8 @@ export interface DashboardHandle {
   clear(panelType?: string): void;
   /** All displayed panel ids (the caller subscribes to these). */
   activePanels(): string[];
+  /** Latest frames, for compact current-session AI summaries. */
+  snapshotFrames(): Record<string, unknown>;
   /** Set how many panels appear per row. */
   setPerRow(n: number): void;
   /** Set the height (px) of each panel row. */
@@ -144,6 +146,11 @@ export function mountDashboard(
       }
     },
     activePanels: () => [...visible],
+    snapshotFrames() {
+      return Object.fromEntries(
+        [...mounted].flatMap(([id, m]) => m.lastFrame == null ? [] : [[id, m.lastFrame]]),
+      );
+    },
     setPerRow(n) { document.documentElement.style.setProperty('--per-row', String(clampPerRow(n))); },
     setHeight(px) { document.documentElement.style.setProperty('--panel-h', `${px}px`); },
     refresh() {

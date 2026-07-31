@@ -6,8 +6,8 @@ import { TremiomClient } from '../transport/ws';
 import { DEFAULT_STATION, STATION_PRESETS } from '../data/stations';
 import { mountStationPicker } from './station-picker';
 import { mountFilterPicker } from './filter-picker';
-import { DEFAULT_FILTER, type FilterSpec } from '../data/filters';
-import { mountUnitsPicker, DEFAULT_UNITS } from './units-picker';
+import { DEFAULT_FILTER, FILTER_PRESETS, type FilterSpec } from '../data/filters';
+import { mountUnitsPicker, DEFAULT_UNITS, UNIT_OPTIONS } from './units-picker';
 import { mountEventList } from './event-list';
 import { mountWorldMap } from './world-map';
 import { mountRecordSection } from './record-section';
@@ -21,6 +21,7 @@ import { mountAlertPicker } from './alert-picker';
 import { alerts } from './alerts';
 import { feedNetwork, resetNetwork, networkGroup } from '../panels/network';
 import type { SeismicEvent } from '../data/events';
+import { mountAiTerminal, type AiInstruction } from './ai-terminal';
 
 export function mountApp(root: HTMLElement, version: string): void {
   root.innerHTML = '';
@@ -112,6 +113,7 @@ export function mountApp(root: HTMLElement, version: string): void {
   const subscribedAt = Date.now();
   let currentFilter: FilterSpec = DEFAULT_FILTER;
   let currentUnits: string = DEFAULT_UNITS;
+  let currentMode: 'live' | 'event' | 'history' = 'live';
 
   // Drum overlay state — events + station coords for predicted-arrival markers.
   let currentEvents: SeismicEvent[] = [];
@@ -313,6 +315,7 @@ export function mountApp(root: HTMLElement, version: string): void {
     eventHost.classList.add('hidden');
     historyHost.classList.add('hidden');
     historyView.hide();
+    currentMode = 'live';
     setModeSelect('live');
   }
   function showEvent() {
@@ -320,6 +323,7 @@ export function mountApp(root: HTMLElement, version: string): void {
     eventHost.classList.remove('hidden');
     historyHost.classList.add('hidden');
     historyView.hide();
+    currentMode = 'event';
     setModeSelect('event');
   }
   function showHistory() {
@@ -327,6 +331,7 @@ export function mountApp(root: HTMLElement, version: string): void {
     eventHost.classList.add('hidden');
     historyHost.classList.remove('hidden');
     historyView.show();
+    currentMode = 'history';
     setModeSelect('history');
   }
 
@@ -428,7 +433,7 @@ export function mountApp(root: HTMLElement, version: string): void {
   const picker = mountStationPicker(pickerMount, currentStation, switchStation);
 
   const filterMount = document.getElementById('filter-mount')!;
-  mountFilterPicker(filterMount, currentFilter, (spec) => {
+  function applyFilter(spec: FilterSpec): void {
     currentFilter = spec;
     client.setFilter(currentStation, {
       kind: spec.kind,
@@ -436,14 +441,16 @@ export function mountApp(root: HTMLElement, version: string): void {
       high: spec.high,
     });
     historyView.refresh();
-  });
+  }
+  const filterPicker = mountFilterPicker(filterMount, currentFilter, applyFilter);
 
   const unitsMount = document.getElementById('units-mount')!;
-  mountUnitsPicker(unitsMount, currentUnits, (units) => {
+  function applyUnits(units: string): void {
     currentUnits = units;
     client.setUnits(currentStation, units);
     historyView.refresh();
-  });
+  }
+  const unitsPicker = mountUnitsPicker(unitsMount, currentUnits, applyUnits);
 
   const alertMount = document.getElementById('alert-picker-mount')!;
   mountAlertPicker(alertMount, () => resubscribe());
@@ -472,6 +479,69 @@ export function mountApp(root: HTMLElement, version: string): void {
     tick();
     setInterval(tick, 1000);
   }
+
+  // ── Session-scoped AI terminal ─────────────────────────────────────
+  const FILTER_IDS = [
+    'raw', 'dc-removed', 'local-quake', 'regional', 'teleseismic-body',
+    'microseism', 'surface-waves', 'slow-signal',
+  ] as const;
+  function applyAiInstruction(instruction: AiInstruction): string {
+    const value = instruction.value || '';
+    if (instruction.type === 'select-station') {
+      const available = new Set([...STATION_PRESETS.map((station) => station.nslc), currentStation]);
+      if (!available.has(value)) return `AI action rejected: station ${value || '(missing)'} is not in this session.`;
+      switchStation(value);
+      return `Selected station ${value}.`;
+    }
+    if (instruction.type === 'select-event') {
+      const event = currentEvents.find((candidate) => candidate.id === value);
+      if (!event) return `AI action rejected: event ${value || '(missing)'} is not in this session.`;
+      pickEvent(event);
+      return `Opened event ${value}.`;
+    }
+    if (instruction.type === 'set-filter') {
+      const index = FILTER_IDS.indexOf(value as typeof FILTER_IDS[number]);
+      const filter = FILTER_PRESETS[index];
+      if (!filter) return `AI action rejected: unknown filter ${value || '(missing)'}.`;
+      filterPicker.setFilter(filter); applyFilter(filter);
+      return `Applied ${filter.label}.`;
+    }
+    if (instruction.type === 'set-units') {
+      if (!UNIT_OPTIONS.some((option) => option.value === value)) {
+        return `AI action rejected: unknown units ${value || '(missing)'}.`;
+      }
+      unitsPicker.setUnits(value); applyUnits(value);
+      return `Changed units to ${value}.`;
+    }
+    if (instruction.type === 'set-mode') {
+      if (value === 'live') pickEvent(null);
+      else if (value === 'history') showHistory();
+      else if (value === 'event' && currentEventId) showEvent();
+      else return `AI action rejected: mode ${value || '(missing)'} is unavailable in this session.`;
+      return `Changed to ${value} mode.`;
+    }
+    return 'AI action rejected: unsupported instruction.';
+  }
+
+  mountAiTerminal(root, {
+    getSessionSnapshot: () => ({
+      mode: currentMode,
+      selectedStation: currentStation,
+      selectedEvent: currentEvents.find((event) => event.id === currentEventId) || null,
+      availableEvents: currentEvents,
+      availableStations: [
+        ...STATION_PRESETS.map((station) => ({ nslc: station.nslc, lat: station.lat, lon: station.lon })),
+        ...(STATION_PRESETS.some((station) => station.nslc === currentStation) || !stationCoords.has(currentStation)
+          ? []
+          : [{ nslc: currentStation, ...stationCoords.get(currentStation)! }]),
+      ],
+      visiblePlots: activePanels,
+      filter: currentFilter,
+      units: currentUnits,
+      plotFrames: dashboard.snapshotFrames(),
+    }),
+    applyInstruction: applyAiInstruction,
+  });
 
 
   // Initial overlay + subscription. mountDashboard didn't fire

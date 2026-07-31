@@ -117,6 +117,19 @@ them is the maintainer's.
 - A **?** in the topbar and on every panel opens a searchable, educational
   reference: what each panel is, how to read it, and how to use it.
 
+### Session-local AI assistant
+- A collapsible, vertically resizable terminal is docked below the plots.
+- Selectable, seismology-focused example prompts populate the composer for
+  review or editing before anything is sent.
+- Uses the model selected from OpenRouter's live model catalog. The API key
+  and model live only in the current tab's `sessionStorage`; requests go
+  directly from the browser to OpenRouter and never through Tremiom's server.
+- Sends compact summaries of only the current session and visible plots—never
+  full-resolution waveform arrays—and renders sanitized Markdown, tables, and
+  LaTeX equations (`$…$`, `$$…$$`, `\\(…\\)`, or `\\[…\\]`) in the response.
+- Can explain the session and, through validated instructions, select an event
+  or station, switch mode, and change the active filter or units.
+
 ### Deployment & access
 - One-command **fly.io** deploy (Docker), **`TREMIOM_TOKEN`** single-token
   private access with a sign-in form + cookie, or fully open for local use.
@@ -163,6 +176,7 @@ src/
     record-section.ts     Event mode: record section, picks, locate, export
     history-view.ts       History mode: arbitrary time window + local files
     beachball.ts          Focal-mechanism renderer
+    ai-terminal.ts        OpenRouter AI terminal + session/action adapter
     settings.ts           Auth/settings modal
     help.ts               Educational help overlay (per-panel docs)
   panels/
@@ -176,6 +190,9 @@ src/
     coastlines.json       Natural Earth 1:110m land outlines
   transport/
     ws.ts events.ts       WebSocket client + USGS feed poller
+  ai/
+    openrouter.ts          Model catalog, browser-session settings, chat API
+    markdown.ts            Sanitized Markdown + LaTeX/KaTeX response renderer
 server.mjs                Node WS multiplexer + REST/FDSN/USGS proxies + auth
 workers/
   worker.py               Unified SeedLink ingestor + live panel computers
