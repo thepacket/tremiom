@@ -2,21 +2,26 @@
 
 **A real-time and historical seismology workstation in your browser.**
 
+![Tremiom event analysis workspace with earthquake map, session AI assistant, and seismic plots](./docs/assets/tremiom-hero.png)
+
 Tremiom streams live waveforms from thousands of global broadband stations,
 runs the full ObsPy/scipy analysis toolkit server-side, and presents it as a
-grid of scientific panels — helicorder drum, spectrogram, PSD/PPSD, RSAM,
-STA/LTA, 3-component, particle motion, H/V site response, and more — shown all
-at once, alphabetically, at your chosen panels-per-row and height. A live
-world map and USGS feed drive an event-analysis mode (record sections, TauP
-arrivals, focal-mechanism beachballs, felt-report + ShakeMap overlays, manual
-+ automatic phase picking, grid-search location, ML/Md magnitudes,
-QuakeML/MiniSEED export). A History mode browses any station over any time
-window with zoom/pan, or opens your own MiniSEED/SAC files. Both History and
-Event modes also compute spectrogram/PSD/spectrum/raw-scope/STA-LTA/
-3-component/particle-motion/H-V panels over the fetched window. Every panel
-removes the instrument response on demand (counts → velocity / displacement /
-acceleration / Wood-Anderson) and applies server-side band-pass filters. And
-it's self-teaching: every panel carries built-in educational help.
+Quantiom-inspired three-pane scientific workspace. A collapsible USGS event
+list occupies the left, a live world map and session-scoped AI assistant share
+the center, and a vertically scrolling, width-adjustable, one-column plot
+inspector occupies the right. The inspector includes helicorder, spectrogram,
+PSD/PPSD, RSAM, STA/LTA, 3-component, particle motion, H/V site response, and
+more.
+
+The event feed drives an event-analysis mode with record sections, TauP
+arrivals, focal-mechanism beachballs, felt-report and ShakeMap overlays,
+manual and automatic phase picking, grid-search location, ML/Md magnitudes,
+and QuakeML/MiniSEED/CSV/PNG export. A History mode browses any station over
+any time window with zoom/pan, or opens your own MiniSEED/SAC files. Both
+History and Event modes compute the same one-column analysis plots over the
+fetched window. Every plot can remove the instrument response on demand
+(counts → velocity / displacement / acceleration / Wood-Anderson) and apply
+server-side filters. Built-in searchable help explains how to read each view.
 
 All in the browser, with no install, behind an optional one-token private
 deploy.
@@ -29,19 +34,18 @@ established tools.
 
 ## Authorship
 
-Tremiom is a two-name project:
+Tremiom is a human-directed, AI-assisted project:
 
-- **[Claude Code](https://www.anthropic.com/claude-code)** — Anthropic's
-  CLI coding agent, sole coder. Every line of TypeScript, Python, the
-  Dockerfile, the `fly.toml`, and the docs you're reading was written by
-  the agent.
+- **[Claude Code](https://www.anthropic.com/claude-code)** and
+  **[OpenAI Codex](https://openai.com/codex/)** — coding agents used to
+  implement, test, document, and refine the application.
 - **[Andre Paquette](https://github.com/andrepaquette)** — human
   maintainer. Set the direction, made design and scope decisions,
   evaluated each iteration on a real fly.io deployment, and decided when
   to ship — but didn't write the code by hand.
 
-Bugs and design choices are the agent's; the call to keep them or fix
-them is the maintainer's.
+The maintainer owns the product and scientific decisions; the agents perform
+implementation work under that direction.
 
 ## Features
 
@@ -54,7 +58,7 @@ them is the maintainer's.
 - **Open local files** — load your own MiniSEED / SAC / GSE2 (anything
   ObsPy reads) and view them in History mode.
 
-### Live panels (14, on an alphabetical grid)
+### Live panels (14, in the alphabetical one-column inspector)
 - **Helicorder** — 24-hour drum recorder; 24 h backfilled on subscribe, then
   live. Catalog events marked at their predicted arrival time.
 - **RSAM** — real-time seismic amplitude (1-min bins over 24 h); tremor tracker.
@@ -81,7 +85,8 @@ them is the maintainer's.
 - **Pan/zoom world map** (wheel + drag, double-click reset) with coastlines,
   live USGS epicenters (magnitude color/size, age fade), and station markers.
 - **Event sidebar** — 17 USGS feeds; magnitude badges; felt-report intensity
-  chips (CDI/MMI).
+  chips (CDI/MMI); collapses to a narrow reopening handle when map space is
+  more valuable.
 
 ### Event-analysis mode (click any event)
 - **Record section** — N nearest stations stacked by epicentral distance,
@@ -96,11 +101,15 @@ them is the maintainer's.
 - **Grid-search location** from your P picks (offset vs the catalog).
 - **Export** — full-resolution **MiniSEED**, decimated **CSV**, or **PNG**.
 
-### Panel grid
-- **All panels at once**, in alphabetical order; the 24-h Helicorder leads
-  full-width and double-height.
-- **Panels per row** (1–6) and **Height** dropdowns + a **Refresh** button;
-  both selections **persist** in the browser.
+### Resizable plot inspector
+- A dedicated right-hand inspector shows **one plot per row**, in alphabetical
+  order, with its own always-visible vertical scrollbar.
+- Drag the vertical divider—or use its keyboard controls—to give the plots or
+  central workspace more room. The chosen width persists in the browser.
+- **Height** and **Refresh**, together with active Event/History controls, live
+  in the top bar so the inspector contains plots rather than toolbars.
+- Live and fetched-window canvases remeasure and redraw at high-DPI resolution
+  whenever the inspector width changes.
 - **Per-panel PNG export** (the ⤓ on each panel header).
 
 ### Live monitoring
@@ -108,7 +117,7 @@ them is the maintainer's.
   crosses your threshold.
 
 ### Modes
-- **Live** (the panel grid), **Event** (record section), **History** (any
+- **Live** (streaming plots), **Event** (record section), **History** (any
   station, any time window, zoom/pan/step, or a local file). Event and
   History also show computed analysis panels over the fetched window.
 
@@ -117,7 +126,8 @@ them is the maintainer's.
   reference: what each panel is, how to read it, and how to use it.
 
 ### Session-local AI assistant
-- A collapsible, vertically resizable terminal is docked below the plots.
+- A collapsible, vertically resizable terminal is docked below the map in the
+  center column, between the event list and plot inspector.
 - Selectable, seismology-focused example prompts populate the composer for
   review or editing before anything is sent.
 - A one-click Copy action copies the latest completed prompt and AI reply,
@@ -130,6 +140,9 @@ them is the maintainer's.
 - Sends compact summaries of only the current session and visible plots—never
   full-resolution waveform arrays—and renders sanitized Markdown, tables, and
   LaTeX equations (`$…$`, `$$…$$`, `\\(…\\)`, or `\\[…\\]`) in the response.
+- Uses a strict input/output grammar and seismological guardrails to distinguish
+  measurements from interpretations, predicted arrivals from observed picks,
+  and detector excursions from confirmed phases.
 - Can explain the session and, through validated instructions, select an event
   or station, switch mode, and change the active filter or units.
 
@@ -167,8 +180,8 @@ src/
   main.ts                 Entry
   ui/
     app.ts                Top-level layout + state plumbing
-    dashboard.ts          Panel grid (all panels, alphabetical, N-per-row)
-    analysis-panels.ts    History/Event computed-panel strip
+    dashboard.ts          Live one-column plot inspector
+    analysis-panels.ts    History/Event one-column computed plots
     station-picker.ts     Topbar station selector + Browse modal
     station-search.ts     FDSN station-catalog search modal
     filter-picker.ts      Band-pass filter selector
@@ -400,10 +413,13 @@ fly certs show tremiom.yourdomain.com -a tremiom   # check issuance
 
 ## Status
 
-**v0.7.x.** Live, event, and history modes all work end-to-end against IRIS
-rtserve + EarthScope FDSN + USGS, with 14 panels on an alphabetical
-panels-per-row grid, computed analysis panels in History/Event, response
-removal, picking/location/magnitudes, and built-in help. Per [`COMPETITIVE.md`](./COMPETITIVE.md), Tremiom is a superset of the
+**v0.8.x.** Live, Event, and History modes work end-to-end against IRIS
+rtserve + EarthScope FDSN + USGS. The current interface uses a collapsible
+event rail, central map and session-local AI terminal, and a resizable
+one-column plot inspector. It includes computed Event/History analysis,
+response removal, filters, picking/location/magnitudes, Markdown/LaTeX AI
+reports, clipboard text/PNG export, and built-in help. Per
+[`COMPETITIVE.md`](./COMPETITIVE.md), Tremiom is a superset of the
 live-monitoring + single-event-analysis feature sets of the established
 tools (Swarm, SeisComP, Snuffler, Wilber 3, GeoNet, Raspberry Shake, …);
 the only deliberate exclusions are array/research subsystems (FK,
