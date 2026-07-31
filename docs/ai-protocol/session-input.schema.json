@@ -1,0 +1,1190 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://tremiom.app/schemas/ai/session-input-v1.schema.json",
+  "title": "Tremiom AI current-session input",
+  "description": "The complete session-scoped evidence made available to the Tremiom assistant for one turn. Anything absent is unavailable and must not be inferred as observed.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "protocolVersion",
+    "contextKind",
+    "generatedAt",
+    "turn",
+    "userRequest",
+    "session",
+    "evidence"
+  ],
+  "properties": {
+    "protocolVersion": {
+      "const": "1.0"
+    },
+    "contextKind": {
+      "const": "current-session"
+    },
+    "generatedAt": {
+      "$ref": "#/$defs/timestamp"
+    },
+    "turn": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "phase"],
+      "properties": {
+        "id": {
+          "$ref": "#/$defs/id"
+        },
+        "phase": {
+          "enum": ["initial", "continuation-after-data", "continuation-after-actions"]
+        },
+        "priorResponseId": {
+          "$ref": "#/$defs/id"
+        }
+      }
+    },
+    "userRequest": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["text"],
+      "properties": {
+        "text": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 8000
+        },
+        "language": {
+          "type": "string",
+          "pattern": "^[A-Za-z]{2,3}(-[A-Za-z0-9]{2,8})*$"
+        }
+      }
+    },
+    "session": {
+      "$ref": "#/$defs/session"
+    },
+    "evidence": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["events", "stations", "picks", "plots", "actionResults"],
+      "properties": {
+        "events": {
+          "type": "array",
+          "maxItems": 50,
+          "items": {
+            "$ref": "#/$defs/event"
+          }
+        },
+        "stations": {
+          "type": "array",
+          "maxItems": 64,
+          "items": {
+            "$ref": "#/$defs/station"
+          }
+        },
+        "picks": {
+          "type": "array",
+          "maxItems": 512,
+          "items": {
+            "$ref": "#/$defs/pick"
+          }
+        },
+        "plots": {
+          "type": "array",
+          "maxItems": 64,
+          "items": {
+            "$ref": "#/$defs/plot"
+          }
+        },
+        "actionResults": {
+          "type": "array",
+          "maxItems": 32,
+          "items": {
+            "$ref": "#/$defs/actionResult"
+          }
+        }
+      }
+    },
+    "conversationSummary": {
+      "type": "string",
+      "maxLength": 6000
+    }
+  },
+  "$defs": {
+    "id": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 160,
+      "pattern": "^[A-Za-z0-9][A-Za-z0-9._:/-]*$"
+    },
+    "timestamp": {
+      "type": "string",
+      "format": "date-time"
+    },
+    "nullableNumber": {
+      "type": ["number", "null"]
+    },
+    "timeWindow": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["start", "end"],
+      "properties": {
+        "start": {
+          "$ref": "#/$defs/timestamp"
+        },
+        "end": {
+          "$ref": "#/$defs/timestamp"
+        },
+        "reference": {
+          "enum": ["absolute", "event-origin", "predicted-p", "picked-p", "present"]
+        }
+      }
+    },
+    "filter": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["kind"],
+      "properties": {
+        "kind": {
+          "enum": ["none", "bandpass", "lowpass", "highpass"]
+        },
+        "lowHz": {
+          "type": "number",
+          "exclusiveMinimum": 0
+        },
+        "highHz": {
+          "type": "number",
+          "exclusiveMinimum": 0
+        },
+        "corners": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 12
+        },
+        "zeroPhase": {
+          "type": "boolean"
+        }
+      }
+    },
+    "processing": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["units", "filter"],
+      "properties": {
+        "units": {
+          "enum": ["counts", "velocity", "displacement", "acceleration", "wood-anderson"]
+        },
+        "filter": {
+          "$ref": "#/$defs/filter"
+        },
+        "component": {
+          "enum": ["Z", "N", "E", "1", "2", "R", "T", "three-component", "horizontal-composite"]
+        },
+        "instrumentResponseRemoved": {
+          "type": "boolean"
+        },
+        "sampleRateHz": {
+          "type": "number",
+          "exclusiveMinimum": 0
+        },
+        "decimationFactor": {
+          "type": "integer",
+          "minimum": 1
+        }
+      }
+    },
+    "session": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "mode",
+        "timezone",
+        "availableEventIds",
+        "availableStationIds",
+        "visiblePlotIds",
+        "processing"
+      ],
+      "properties": {
+        "mode": {
+          "enum": ["live", "event", "history", "local-file"]
+        },
+        "timezone": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 80
+        },
+        "selectedEventId": {
+          "type": ["string", "null"],
+          "maxLength": 160
+        },
+        "selectedStationId": {
+          "type": ["string", "null"],
+          "maxLength": 160
+        },
+        "availableEventIds": {
+          "type": "array",
+          "maxItems": 50,
+          "uniqueItems": true,
+          "items": {
+            "$ref": "#/$defs/id"
+          }
+        },
+        "availableStationIds": {
+          "type": "array",
+          "maxItems": 64,
+          "uniqueItems": true,
+          "items": {
+            "$ref": "#/$defs/nslc"
+          }
+        },
+        "visiblePlotIds": {
+          "type": "array",
+          "maxItems": 32,
+          "uniqueItems": true,
+          "items": {
+            "$ref": "#/$defs/id"
+          }
+        },
+        "activeTimeWindow": {
+          "$ref": "#/$defs/timeWindow"
+        },
+        "processing": {
+          "$ref": "#/$defs/processing"
+        }
+      }
+    },
+    "nslc": {
+      "type": "string",
+      "pattern": "^[A-Z0-9]{1,8}\\.[A-Z0-9]{1,8}\\.[A-Z0-9]{0,3}\\.[A-Z0-9?]{2,3}$"
+    },
+    "event": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "evidenceId",
+        "eventId",
+        "originTime",
+        "latitudeDeg",
+        "longitudeDeg",
+        "depthKm",
+        "magnitude",
+        "place"
+      ],
+      "properties": {
+        "evidenceId": {
+          "$ref": "#/$defs/id"
+        },
+        "eventId": {
+          "$ref": "#/$defs/id"
+        },
+        "originTime": {
+          "$ref": "#/$defs/timestamp"
+        },
+        "latitudeDeg": {
+          "type": "number",
+          "minimum": -90,
+          "maximum": 90
+        },
+        "longitudeDeg": {
+          "type": "number",
+          "minimum": -180,
+          "maximum": 180
+        },
+        "depthKm": {
+          "type": "number",
+          "minimum": -10,
+          "maximum": 800
+        },
+        "magnitude": {
+          "$ref": "#/$defs/nullableNumber"
+        },
+        "magnitudeType": {
+          "type": ["string", "null"],
+          "maxLength": 16
+        },
+        "place": {
+          "type": "string",
+          "maxLength": 300
+        },
+        "catalog": {
+          "type": "string",
+          "maxLength": 40
+        },
+        "tsunamiFlag": {
+          "type": "boolean"
+        },
+        "feltReports": {
+          "type": ["integer", "null"],
+          "minimum": 0
+        },
+        "communityIntensityMmi": {
+          "type": ["number", "null"],
+          "minimum": 0,
+          "maximum": 12
+        },
+        "instrumentalIntensityMmi": {
+          "type": ["number", "null"],
+          "minimum": 0,
+          "maximum": 12
+        },
+        "alertLevel": {
+          "enum": ["green", "yellow", "orange", "red", null]
+        }
+      }
+    },
+    "station": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["evidenceId", "stationId", "latitudeDeg", "longitudeDeg"],
+      "properties": {
+        "evidenceId": {
+          "$ref": "#/$defs/id"
+        },
+        "stationId": {
+          "$ref": "#/$defs/nslc"
+        },
+        "latitudeDeg": {
+          "type": "number",
+          "minimum": -90,
+          "maximum": 90
+        },
+        "longitudeDeg": {
+          "type": "number",
+          "minimum": -180,
+          "maximum": 180
+        },
+        "elevationM": {
+          "$ref": "#/$defs/nullableNumber"
+        },
+        "sensor": {
+          "type": ["string", "null"],
+          "maxLength": 200
+        },
+        "sampleRateHz": {
+          "type": ["number", "null"],
+          "exclusiveMinimum": 0
+        },
+        "epicentralDistanceKm": {
+          "type": ["number", "null"],
+          "minimum": 0
+        },
+        "epicentralDistanceDeg": {
+          "type": ["number", "null"],
+          "minimum": 0,
+          "maximum": 180
+        },
+        "azimuthDeg": {
+          "type": ["number", "null"],
+          "minimum": 0,
+          "maximum": 360
+        },
+        "backAzimuthDeg": {
+          "type": ["number", "null"],
+          "minimum": 0,
+          "maximum": 360
+        }
+      }
+    },
+    "pick": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "evidenceId",
+        "pickId",
+        "eventId",
+        "stationId",
+        "phase",
+        "time",
+        "method"
+      ],
+      "properties": {
+        "evidenceId": {
+          "$ref": "#/$defs/id"
+        },
+        "pickId": {
+          "$ref": "#/$defs/id"
+        },
+        "eventId": {
+          "$ref": "#/$defs/id"
+        },
+        "stationId": {
+          "$ref": "#/$defs/nslc"
+        },
+        "phase": {
+          "enum": ["P", "Pg", "Pn", "p", "S", "Sg", "Sn", "s", "unknown"]
+        },
+        "time": {
+          "$ref": "#/$defs/timestamp"
+        },
+        "secondsFromOrigin": {
+          "$ref": "#/$defs/nullableNumber"
+        },
+        "method": {
+          "enum": ["manual", "automatic", "predicted"]
+        },
+        "uncertaintyS": {
+          "type": ["number", "null"],
+          "minimum": 0
+        },
+        "residualS": {
+          "$ref": "#/$defs/nullableNumber"
+        },
+        "polarity": {
+          "enum": ["positive", "negative", "undecidable", null]
+        },
+        "onset": {
+          "enum": ["impulsive", "emergent", "questionable", null]
+        },
+        "evaluationStatus": {
+          "enum": ["preliminary", "reviewed", "rejected"]
+        }
+      }
+    },
+    "plotType": {
+      "enum": [
+        "world-map",
+        "record-section",
+        "drum",
+        "helicorder",
+        "raw-scope",
+        "three-comp",
+        "spectrogram",
+        "spectrum",
+        "psd",
+        "ppsd",
+        "sta-lta",
+        "particle-motion",
+        "hv",
+        "rsam",
+        "network",
+        "qc",
+        "beachball",
+        "dyfi",
+        "shakemap",
+        "wadati"
+      ]
+    },
+    "quality": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["status"],
+      "properties": {
+        "status": {
+          "enum": ["good", "usable", "poor", "unavailable", "unknown"]
+        },
+        "coveragePct": {
+          "type": ["number", "null"],
+          "minimum": 0,
+          "maximum": 100
+        },
+        "gapCount": {
+          "type": ["integer", "null"],
+          "minimum": 0
+        },
+        "clipped": {
+          "type": ["boolean", "null"]
+        },
+        "latencyS": {
+          "type": ["number", "null"],
+          "minimum": 0
+        },
+        "warnings": {
+          "type": "array",
+          "maxItems": 20,
+          "items": {
+            "type": "string",
+            "maxLength": 300
+          }
+        }
+      }
+    },
+    "plot": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "evidenceId",
+        "plotId",
+        "plotType",
+        "visible",
+        "status",
+        "stationIds",
+        "quality",
+        "summary"
+      ],
+      "properties": {
+        "evidenceId": {
+          "$ref": "#/$defs/id"
+        },
+        "plotId": {
+          "$ref": "#/$defs/id"
+        },
+        "plotType": {
+          "$ref": "#/$defs/plotType"
+        },
+        "visible": {
+          "type": "boolean"
+        },
+        "status": {
+          "enum": ["ready", "loading", "partial", "error", "not-computed"]
+        },
+        "eventId": {
+          "type": ["string", "null"],
+          "maxLength": 160
+        },
+        "stationIds": {
+          "type": "array",
+          "maxItems": 64,
+          "uniqueItems": true,
+          "items": {
+            "$ref": "#/$defs/nslc"
+          }
+        },
+        "timeWindow": {
+          "$ref": "#/$defs/timeWindow"
+        },
+        "processing": {
+          "$ref": "#/$defs/processing"
+        },
+        "quality": {
+          "$ref": "#/$defs/quality"
+        },
+        "algorithm": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["name"],
+          "properties": {
+            "name": {
+              "type": "string",
+              "maxLength": 100
+            },
+            "version": {
+              "type": "string",
+              "maxLength": 40
+            },
+            "parameters": {
+              "type": "object",
+              "maxProperties": 24,
+              "additionalProperties": {
+                "type": ["string", "number", "boolean", "null"]
+              }
+            }
+          }
+        },
+        "summary": {
+          "oneOf": [
+            {
+              "$ref": "#/$defs/timeSeriesSummary"
+            },
+            {
+              "$ref": "#/$defs/spectralSummary"
+            },
+            {
+              "$ref": "#/$defs/triggerSummary"
+            },
+            {
+              "$ref": "#/$defs/polarizationSummary"
+            },
+            {
+              "$ref": "#/$defs/networkSummary"
+            },
+            {
+              "$ref": "#/$defs/recordSectionSummary"
+            },
+            {
+              "$ref": "#/$defs/mapSummary"
+            },
+            {
+              "$ref": "#/$defs/mechanismSummary"
+            },
+            {
+              "$ref": "#/$defs/intensitySummary"
+            },
+            {
+              "$ref": "#/$defs/qcSummary"
+            },
+            {
+              "$ref": "#/$defs/wadatiSummary"
+            },
+            {
+              "$ref": "#/$defs/unavailableSummary"
+            }
+          ]
+        }
+      }
+    },
+    "timeSeriesSummary": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["summaryType"],
+      "properties": {
+        "summaryType": {
+          "const": "time-series"
+        },
+        "durationS": {
+          "type": "number",
+          "minimum": 0
+        },
+        "minimum": {
+          "$ref": "#/$defs/nullableNumber"
+        },
+        "maximum": {
+          "$ref": "#/$defs/nullableNumber"
+        },
+        "mean": {
+          "$ref": "#/$defs/nullableNumber"
+        },
+        "rms": {
+          "$ref": "#/$defs/nullableNumber"
+        },
+        "peakAbsolute": {
+          "$ref": "#/$defs/nullableNumber"
+        },
+        "signalToNoiseDb": {
+          "$ref": "#/$defs/nullableNumber"
+        },
+        "trendPerHour": {
+          "$ref": "#/$defs/nullableNumber"
+        },
+        "anomalousIntervals": {
+          "type": "array",
+          "maxItems": 32,
+          "items": {
+            "$ref": "#/$defs/timeWindow"
+          }
+        }
+      }
+    },
+    "spectralPeak": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["frequencyHz", "value"],
+      "properties": {
+        "frequencyHz": {
+          "type": "number",
+          "minimum": 0
+        },
+        "value": {
+          "type": "number"
+        },
+        "bandwidthHz": {
+          "type": ["number", "null"],
+          "minimum": 0
+        },
+        "persistent": {
+          "type": ["boolean", "null"]
+        }
+      }
+    },
+    "spectralSummary": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["summaryType", "frequencyMinHz", "frequencyMaxHz", "peaks"],
+      "properties": {
+        "summaryType": {
+          "const": "spectral"
+        },
+        "frequencyMinHz": {
+          "type": "number",
+          "minimum": 0
+        },
+        "frequencyMaxHz": {
+          "type": "number",
+          "exclusiveMinimum": 0
+        },
+        "valueScale": {
+          "enum": ["amplitude-db", "power-db", "ratio", "probability", "unknown"]
+        },
+        "peaks": {
+          "type": "array",
+          "maxItems": 20,
+          "items": {
+            "$ref": "#/$defs/spectralPeak"
+          }
+        },
+        "dominantBandLowHz": {
+          "$ref": "#/$defs/nullableNumber"
+        },
+        "dominantBandHighHz": {
+          "$ref": "#/$defs/nullableNumber"
+        },
+        "noiseFloorDb": {
+          "$ref": "#/$defs/nullableNumber"
+        },
+        "nlnmExceedanceDb": {
+          "$ref": "#/$defs/nullableNumber"
+        },
+        "nhnmExceedanceDb": {
+          "$ref": "#/$defs/nullableNumber"
+        },
+        "resonanceFrequencyHz": {
+          "$ref": "#/$defs/nullableNumber"
+        },
+        "resonanceAmplitude": {
+          "$ref": "#/$defs/nullableNumber"
+        },
+        "transientStart": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/timestamp"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "transientDurationS": {
+          "$ref": "#/$defs/nullableNumber"
+        }
+      }
+    },
+    "triggerSummary": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["summaryType", "method", "threshold", "triggerCount"],
+      "properties": {
+        "summaryType": {
+          "const": "trigger"
+        },
+        "method": {
+          "enum": ["sta-lta", "other"]
+        },
+        "staWindowS": {
+          "$ref": "#/$defs/nullableNumber"
+        },
+        "ltaWindowS": {
+          "$ref": "#/$defs/nullableNumber"
+        },
+        "threshold": {
+          "type": "number",
+          "minimum": 0
+        },
+        "peakRatio": {
+          "$ref": "#/$defs/nullableNumber"
+        },
+        "triggerCount": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "firstTrigger": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/timestamp"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        }
+      }
+    },
+    "polarizationSummary": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["summaryType"],
+      "properties": {
+        "summaryType": {
+          "const": "polarization"
+        },
+        "azimuthDeg": {
+          "$ref": "#/$defs/nullableNumber"
+        },
+        "incidenceDeg": {
+          "$ref": "#/$defs/nullableNumber"
+        },
+        "rectilinearity": {
+          "type": ["number", "null"],
+          "minimum": 0,
+          "maximum": 1
+        },
+        "planarity": {
+          "type": ["number", "null"],
+          "minimum": 0,
+          "maximum": 1
+        },
+        "ellipticity": {
+          "type": ["number", "null"],
+          "minimum": 0,
+          "maximum": 1
+        },
+        "horizontalChannel1": {
+          "type": ["string", "null"],
+          "maxLength": 8
+        },
+        "horizontalChannel2": {
+          "type": ["string", "null"],
+          "maxLength": 8
+        }
+      }
+    },
+    "networkSummary": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["summaryType", "stationCount", "usableStationCount"],
+      "properties": {
+        "summaryType": {
+          "const": "network"
+        },
+        "stationCount": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "usableStationCount": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "coherentOnset": {
+          "type": ["boolean", "null"]
+        },
+        "coherence": {
+          "type": ["number", "null"],
+          "minimum": 0,
+          "maximum": 1
+        },
+        "highestAmplitudeStationId": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/nslc"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "anomalousStationIds": {
+          "type": "array",
+          "maxItems": 64,
+          "items": {
+            "$ref": "#/$defs/nslc"
+          }
+        }
+      }
+    },
+    "recordSectionTrace": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["stationId", "distanceKm"],
+      "properties": {
+        "stationId": {
+          "$ref": "#/$defs/nslc"
+        },
+        "distanceKm": {
+          "type": "number",
+          "minimum": 0
+        },
+        "distanceDeg": {
+          "type": ["number", "null"],
+          "minimum": 0,
+          "maximum": 180
+        },
+        "predictedPSeconds": {
+          "$ref": "#/$defs/nullableNumber"
+        },
+        "predictedSSeconds": {
+          "$ref": "#/$defs/nullableNumber"
+        },
+        "pickedPSeconds": {
+          "$ref": "#/$defs/nullableNumber"
+        },
+        "pickedSSeconds": {
+          "$ref": "#/$defs/nullableNumber"
+        },
+        "pResidualS": {
+          "$ref": "#/$defs/nullableNumber"
+        },
+        "sResidualS": {
+          "$ref": "#/$defs/nullableNumber"
+        },
+        "signalToNoiseDb": {
+          "$ref": "#/$defs/nullableNumber"
+        }
+      }
+    },
+    "recordSectionSummary": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["summaryType", "component", "traces"],
+      "properties": {
+        "summaryType": {
+          "const": "record-section"
+        },
+        "component": {
+          "enum": ["Z", "R", "T"]
+        },
+        "velocityModel": {
+          "type": "string",
+          "maxLength": 40
+        },
+        "traces": {
+          "type": "array",
+          "maxItems": 64,
+          "items": {
+            "$ref": "#/$defs/recordSectionTrace"
+          }
+        },
+        "medianPResidualS": {
+          "$ref": "#/$defs/nullableNumber"
+        },
+        "medianSResidualS": {
+          "$ref": "#/$defs/nullableNumber"
+        }
+      }
+    },
+    "mapSummary": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["summaryType", "eventCount", "stationCount"],
+      "properties": {
+        "summaryType": {
+          "const": "map"
+        },
+        "eventCount": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "stationCount": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "selectedEventId": {
+          "type": ["string", "null"],
+          "maxLength": 160
+        },
+        "selectedStationId": {
+          "type": ["string", "null"],
+          "maxLength": 160
+        },
+        "viewportNorthDeg": {
+          "type": "number",
+          "minimum": -90,
+          "maximum": 90
+        },
+        "viewportSouthDeg": {
+          "type": "number",
+          "minimum": -90,
+          "maximum": 90
+        },
+        "viewportEastDeg": {
+          "type": "number",
+          "minimum": -180,
+          "maximum": 180
+        },
+        "viewportWestDeg": {
+          "type": "number",
+          "minimum": -180,
+          "maximum": 180
+        }
+      }
+    },
+    "mechanismSummary": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["summaryType", "available"],
+      "properties": {
+        "summaryType": {
+          "const": "mechanism"
+        },
+        "available": {
+          "type": "boolean"
+        },
+        "strikeDeg": {
+          "$ref": "#/$defs/nullableNumber"
+        },
+        "dipDeg": {
+          "$ref": "#/$defs/nullableNumber"
+        },
+        "rakeDeg": {
+          "$ref": "#/$defs/nullableNumber"
+        },
+        "mechanismClass": {
+          "enum": ["normal", "reverse", "strike-slip", "oblique", "unknown", null]
+        },
+        "source": {
+          "type": ["string", "null"],
+          "maxLength": 100
+        }
+      }
+    },
+    "intensitySummary": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["summaryType", "product"],
+      "properties": {
+        "summaryType": {
+          "const": "intensity"
+        },
+        "product": {
+          "enum": ["dyfi", "shakemap"]
+        },
+        "maximumMmi": {
+          "$ref": "#/$defs/nullableNumber"
+        },
+        "feltReports": {
+          "type": ["integer", "null"],
+          "minimum": 0
+        },
+        "polygonCount": {
+          "type": ["integer", "null"],
+          "minimum": 0
+        },
+        "coverageAvailable": {
+          "type": "boolean"
+        }
+      }
+    },
+    "qcSummary": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["summaryType"],
+      "properties": {
+        "summaryType": {
+          "const": "quality-control"
+        },
+        "availabilityPct": {
+          "type": ["number", "null"],
+          "minimum": 0,
+          "maximum": 100
+        },
+        "latencyS": {
+          "type": ["number", "null"],
+          "minimum": 0
+        },
+        "bufferFillPct": {
+          "type": ["number", "null"],
+          "minimum": 0,
+          "maximum": 100
+        },
+        "rms": {
+          "$ref": "#/$defs/nullableNumber"
+        },
+        "gapCount": {
+          "type": ["integer", "null"],
+          "minimum": 0
+        },
+        "clipped": {
+          "type": ["boolean", "null"]
+        }
+      }
+    },
+    "wadatiPoint": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["stationId", "pTime", "sMinusPSeconds", "includedInFit"],
+      "properties": {
+        "stationId": {
+          "$ref": "#/$defs/nslc"
+        },
+        "pTime": {
+          "$ref": "#/$defs/timestamp"
+        },
+        "sMinusPSeconds": {
+          "type": "number",
+          "minimum": 0
+        },
+        "uncertaintyS": {
+          "type": ["number", "null"],
+          "minimum": 0
+        },
+        "includedInFit": {
+          "type": "boolean"
+        },
+        "fitResidualS": {
+          "$ref": "#/$defs/nullableNumber"
+        }
+      }
+    },
+    "wadatiSummary": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["summaryType", "method", "points", "fitStatus"],
+      "properties": {
+        "summaryType": {
+          "const": "wadati"
+        },
+        "method": {
+          "enum": ["classic-s-minus-p-vs-p", "modified-differential"]
+        },
+        "points": {
+          "type": "array",
+          "maxItems": 64,
+          "items": {
+            "$ref": "#/$defs/wadatiPoint"
+          }
+        },
+        "fitStatus": {
+          "enum": ["not-attempted", "insufficient-picks", "fit", "unstable"]
+        },
+        "slope": {
+          "$ref": "#/$defs/nullableNumber"
+        },
+        "vpVsRatio": {
+          "type": ["number", "null"],
+          "minimum": 1,
+          "maximum": 3
+        },
+        "originTimeEstimate": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/timestamp"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "rSquared": {
+          "type": ["number", "null"],
+          "minimum": 0,
+          "maximum": 1
+        },
+        "rmsResidualS": {
+          "type": ["number", "null"],
+          "minimum": 0
+        },
+        "outlierStationIds": {
+          "type": "array",
+          "maxItems": 64,
+          "items": {
+            "$ref": "#/$defs/nslc"
+          }
+        }
+      }
+    },
+    "unavailableSummary": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["summaryType", "reason"],
+      "properties": {
+        "summaryType": {
+          "const": "unavailable"
+        },
+        "reason": {
+          "enum": ["loading", "no-data", "insufficient-data", "dependency-error", "upstream-error", "not-computed"]
+        },
+        "detail": {
+          "type": "string",
+          "maxLength": 500
+        }
+      }
+    },
+    "actionResult": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["actionId", "status"],
+      "properties": {
+        "actionId": {
+          "$ref": "#/$defs/id"
+        },
+        "status": {
+          "enum": ["completed", "rejected", "failed", "confirmation-denied"]
+        },
+        "message": {
+          "type": "string",
+          "maxLength": 1000
+        },
+        "producedEvidenceIds": {
+          "type": "array",
+          "maxItems": 64,
+          "items": {
+            "$ref": "#/$defs/id"
+          }
+        }
+      }
+    }
+  }
+}

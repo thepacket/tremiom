@@ -1,0 +1,713 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://tremiom.app/schemas/ai/session-output-v1.schema.json",
+  "title": "Tremiom AI current-session output",
+  "description": "A structured assistant response containing user-facing interpretation, evidence citations, session-bound UI actions, and requests for already-loaded session data.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "protocolVersion",
+    "responseId",
+    "message",
+    "assessment",
+    "evidence",
+    "actions",
+    "dataRequests"
+  ],
+  "properties": {
+    "protocolVersion": {
+      "const": "1.0"
+    },
+    "responseId": {
+      "$ref": "#/$defs/id"
+    },
+    "message": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 12000
+    },
+    "assessment": {
+      "$ref": "#/$defs/assessment"
+    },
+    "evidence": {
+      "type": "array",
+      "maxItems": 24,
+      "items": {
+        "$ref": "#/$defs/evidenceCitation"
+      }
+    },
+    "actions": {
+      "type": "array",
+      "maxItems": 12,
+      "items": {
+        "$ref": "#/$defs/action"
+      }
+    },
+    "dataRequests": {
+      "type": "array",
+      "maxItems": 8,
+      "items": {
+        "$ref": "#/$defs/dataRequest"
+      }
+    }
+  },
+  "$defs": {
+    "id": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 160,
+      "pattern": "^[A-Za-z0-9][A-Za-z0-9._:/-]*$"
+    },
+    "nslc": {
+      "type": "string",
+      "pattern": "^[A-Z0-9]{1,8}\\.[A-Z0-9]{1,8}\\.[A-Z0-9]{0,3}\\.[A-Z0-9?]{2,3}$"
+    },
+    "timestamp": {
+      "type": "string",
+      "format": "date-time"
+    },
+    "plotType": {
+      "enum": [
+        "world-map",
+        "record-section",
+        "drum",
+        "helicorder",
+        "raw-scope",
+        "three-comp",
+        "spectrogram",
+        "spectrum",
+        "psd",
+        "ppsd",
+        "sta-lta",
+        "particle-motion",
+        "hv",
+        "rsam",
+        "network",
+        "qc",
+        "beachball",
+        "dyfi",
+        "shakemap",
+        "wadati"
+      ]
+    },
+    "assessment": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["kind", "confidence", "limitations"],
+      "properties": {
+        "kind": {
+          "enum": [
+            "none",
+            "navigation",
+            "data-quality",
+            "signal-description",
+            "event-interpretation",
+            "station-comparison",
+            "pick-review",
+            "educational-explanation"
+          ]
+        },
+        "confidence": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["level", "score"],
+          "properties": {
+            "level": {
+              "enum": ["not-applicable", "low", "moderate", "high"]
+            },
+            "score": {
+              "type": ["number", "null"],
+              "minimum": 0,
+              "maximum": 1
+            }
+          }
+        },
+        "limitations": {
+          "type": "array",
+          "maxItems": 12,
+          "items": {
+            "type": "string",
+            "maxLength": 500
+          }
+        },
+        "alternativeInterpretations": {
+          "type": "array",
+          "maxItems": 8,
+          "items": {
+            "type": "string",
+            "maxLength": 700
+          }
+        }
+      }
+    },
+    "evidenceCitation": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["evidenceId", "claim"],
+      "properties": {
+        "evidenceId": {
+          "$ref": "#/$defs/id"
+        },
+        "claim": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 1000
+        },
+        "weight": {
+          "enum": ["supporting", "contradicting", "context"]
+        }
+      }
+    },
+    "actionBase": {
+      "type": "object",
+      "required": ["actionId", "type", "reason"],
+      "properties": {
+        "actionId": {
+          "$ref": "#/$defs/id"
+        },
+        "type": {
+          "type": "string"
+        },
+        "reason": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 500
+        }
+      }
+    },
+    "action": {
+      "oneOf": [
+        {
+          "$ref": "#/$defs/setModeAction"
+        },
+        {
+          "$ref": "#/$defs/selectEventAction"
+        },
+        {
+          "$ref": "#/$defs/selectStationAction"
+        },
+        {
+          "$ref": "#/$defs/setVisiblePlotsAction"
+        },
+        {
+          "$ref": "#/$defs/setTimeWindowAction"
+        },
+        {
+          "$ref": "#/$defs/setFilterAction"
+        },
+        {
+          "$ref": "#/$defs/setUnitsAction"
+        },
+        {
+          "$ref": "#/$defs/setComponentAction"
+        },
+        {
+          "$ref": "#/$defs/focusEvidenceAction"
+        },
+        {
+          "$ref": "#/$defs/addAnnotationAction"
+        },
+        {
+          "$ref": "#/$defs/proposePickAction"
+        },
+        {
+          "$ref": "#/$defs/createWadatiAction"
+        },
+        {
+          "$ref": "#/$defs/exportSessionAction"
+        }
+      ]
+    },
+    "setModeAction": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["actionId", "type", "reason", "mode"],
+      "properties": {
+        "actionId": {
+          "$ref": "#/$defs/id"
+        },
+        "type": {
+          "const": "set-mode"
+        },
+        "reason": {
+          "type": "string",
+          "maxLength": 500
+        },
+        "mode": {
+          "enum": ["live", "event", "history", "local-file"]
+        }
+      }
+    },
+    "selectEventAction": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["actionId", "type", "reason", "eventId"],
+      "properties": {
+        "actionId": {
+          "$ref": "#/$defs/id"
+        },
+        "type": {
+          "const": "select-event"
+        },
+        "reason": {
+          "type": "string",
+          "maxLength": 500
+        },
+        "eventId": {
+          "$ref": "#/$defs/id"
+        }
+      }
+    },
+    "selectStationAction": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["actionId", "type", "reason", "stationId"],
+      "properties": {
+        "actionId": {
+          "$ref": "#/$defs/id"
+        },
+        "type": {
+          "const": "select-station"
+        },
+        "reason": {
+          "type": "string",
+          "maxLength": 500
+        },
+        "stationId": {
+          "$ref": "#/$defs/nslc"
+        }
+      }
+    },
+    "setVisiblePlotsAction": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["actionId", "type", "reason", "plotTypes"],
+      "properties": {
+        "actionId": {
+          "$ref": "#/$defs/id"
+        },
+        "type": {
+          "const": "set-visible-plots"
+        },
+        "reason": {
+          "type": "string",
+          "maxLength": 500
+        },
+        "plotTypes": {
+          "type": "array",
+          "minItems": 1,
+          "maxItems": 20,
+          "uniqueItems": true,
+          "items": {
+            "$ref": "#/$defs/plotType"
+          }
+        }
+      }
+    },
+    "setTimeWindowAction": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["actionId", "type", "reason", "start", "end"],
+      "properties": {
+        "actionId": {
+          "$ref": "#/$defs/id"
+        },
+        "type": {
+          "const": "set-time-window"
+        },
+        "reason": {
+          "type": "string",
+          "maxLength": 500
+        },
+        "start": {
+          "$ref": "#/$defs/timestamp"
+        },
+        "end": {
+          "$ref": "#/$defs/timestamp"
+        }
+      }
+    },
+    "setFilterAction": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["actionId", "type", "reason", "filter"],
+      "properties": {
+        "actionId": {
+          "$ref": "#/$defs/id"
+        },
+        "type": {
+          "const": "set-filter"
+        },
+        "reason": {
+          "type": "string",
+          "maxLength": 500
+        },
+        "filter": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["kind"],
+          "properties": {
+            "kind": {
+              "enum": ["none", "bandpass", "lowpass", "highpass"]
+            },
+            "lowHz": {
+              "type": "number",
+              "exclusiveMinimum": 0
+            },
+            "highHz": {
+              "type": "number",
+              "exclusiveMinimum": 0
+            }
+          }
+        }
+      }
+    },
+    "setUnitsAction": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["actionId", "type", "reason", "units"],
+      "properties": {
+        "actionId": {
+          "$ref": "#/$defs/id"
+        },
+        "type": {
+          "const": "set-units"
+        },
+        "reason": {
+          "type": "string",
+          "maxLength": 500
+        },
+        "units": {
+          "enum": ["counts", "velocity", "displacement", "acceleration", "wood-anderson"]
+        }
+      }
+    },
+    "setComponentAction": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["actionId", "type", "reason", "component"],
+      "properties": {
+        "actionId": {
+          "$ref": "#/$defs/id"
+        },
+        "type": {
+          "const": "set-component"
+        },
+        "reason": {
+          "type": "string",
+          "maxLength": 500
+        },
+        "component": {
+          "enum": ["Z", "R", "T"]
+        }
+      }
+    },
+    "focusEvidenceAction": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["actionId", "type", "reason", "evidenceId"],
+      "properties": {
+        "actionId": {
+          "$ref": "#/$defs/id"
+        },
+        "type": {
+          "const": "focus-evidence"
+        },
+        "reason": {
+          "type": "string",
+          "maxLength": 500
+        },
+        "evidenceId": {
+          "$ref": "#/$defs/id"
+        }
+      }
+    },
+    "addAnnotationAction": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["actionId", "type", "reason", "text"],
+      "properties": {
+        "actionId": {
+          "$ref": "#/$defs/id"
+        },
+        "type": {
+          "const": "add-annotation"
+        },
+        "reason": {
+          "type": "string",
+          "maxLength": 500
+        },
+        "text": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 1000
+        },
+        "evidenceId": {
+          "$ref": "#/$defs/id"
+        },
+        "time": {
+          "$ref": "#/$defs/timestamp"
+        }
+      }
+    },
+    "proposePickAction": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "actionId",
+        "type",
+        "reason",
+        "stationId",
+        "phase",
+        "time",
+        "uncertaintyS",
+        "requiresConfirmation"
+      ],
+      "properties": {
+        "actionId": {
+          "$ref": "#/$defs/id"
+        },
+        "type": {
+          "const": "propose-pick"
+        },
+        "reason": {
+          "type": "string",
+          "maxLength": 500
+        },
+        "stationId": {
+          "$ref": "#/$defs/nslc"
+        },
+        "phase": {
+          "enum": ["P", "S"]
+        },
+        "time": {
+          "$ref": "#/$defs/timestamp"
+        },
+        "uncertaintyS": {
+          "type": "number",
+          "minimum": 0
+        },
+        "requiresConfirmation": {
+          "const": true
+        }
+      }
+    },
+    "createWadatiAction": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["actionId", "type", "reason", "pickIds", "method"],
+      "properties": {
+        "actionId": {
+          "$ref": "#/$defs/id"
+        },
+        "type": {
+          "const": "create-wadati"
+        },
+        "reason": {
+          "type": "string",
+          "maxLength": 500
+        },
+        "pickIds": {
+          "type": "array",
+          "minItems": 6,
+          "maxItems": 128,
+          "uniqueItems": true,
+          "items": {
+            "$ref": "#/$defs/id"
+          }
+        },
+        "method": {
+          "enum": ["classic-s-minus-p-vs-p", "modified-differential"]
+        }
+      }
+    },
+    "exportSessionAction": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["actionId", "type", "reason", "format", "requiresConfirmation"],
+      "properties": {
+        "actionId": {
+          "$ref": "#/$defs/id"
+        },
+        "type": {
+          "const": "export-session"
+        },
+        "reason": {
+          "type": "string",
+          "maxLength": 500
+        },
+        "format": {
+          "enum": ["png", "csv", "quakeml", "miniseed"]
+        },
+        "requiresConfirmation": {
+          "const": true
+        }
+      }
+    },
+    "dataRequest": {
+      "oneOf": [
+        {
+          "$ref": "#/$defs/getPlotSummaryRequest"
+        },
+        {
+          "$ref": "#/$defs/compareStationsRequest"
+        },
+        {
+          "$ref": "#/$defs/getSeriesExcerptRequest"
+        },
+        {
+          "$ref": "#/$defs/getPickSetRequest"
+        }
+      ]
+    },
+    "getPlotSummaryRequest": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["requestId", "type", "plotId", "purpose", "alreadyLoadedOnly"],
+      "properties": {
+        "requestId": {
+          "$ref": "#/$defs/id"
+        },
+        "type": {
+          "const": "get-plot-summary"
+        },
+        "plotId": {
+          "$ref": "#/$defs/id"
+        },
+        "purpose": {
+          "type": "string",
+          "maxLength": 500
+        },
+        "alreadyLoadedOnly": {
+          "const": true
+        }
+      }
+    },
+    "compareStationsRequest": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "requestId",
+        "type",
+        "stationIds",
+        "metrics",
+        "purpose",
+        "alreadyLoadedOnly"
+      ],
+      "properties": {
+        "requestId": {
+          "$ref": "#/$defs/id"
+        },
+        "type": {
+          "const": "compare-session-stations"
+        },
+        "stationIds": {
+          "type": "array",
+          "minItems": 2,
+          "maxItems": 32,
+          "uniqueItems": true,
+          "items": {
+            "$ref": "#/$defs/nslc"
+          }
+        },
+        "metrics": {
+          "type": "array",
+          "minItems": 1,
+          "maxItems": 12,
+          "uniqueItems": true,
+          "items": {
+            "enum": [
+              "availability",
+              "latency",
+              "rms",
+              "signal-to-noise",
+              "peak-amplitude",
+              "dominant-frequency",
+              "p-residual",
+              "s-residual",
+              "sta-lta-peak",
+              "rsam-trend"
+            ]
+          }
+        },
+        "purpose": {
+          "type": "string",
+          "maxLength": 500
+        },
+        "alreadyLoadedOnly": {
+          "const": true
+        }
+      }
+    },
+    "getSeriesExcerptRequest": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "requestId",
+        "type",
+        "plotId",
+        "start",
+        "end",
+        "representation",
+        "maxPoints",
+        "purpose",
+        "alreadyLoadedOnly"
+      ],
+      "properties": {
+        "requestId": {
+          "$ref": "#/$defs/id"
+        },
+        "type": {
+          "const": "get-series-excerpt"
+        },
+        "plotId": {
+          "$ref": "#/$defs/id"
+        },
+        "start": {
+          "$ref": "#/$defs/timestamp"
+        },
+        "end": {
+          "$ref": "#/$defs/timestamp"
+        },
+        "representation": {
+          "enum": ["min-max-envelope", "uniform-downsample", "spectral-peaks", "time-frequency-ridges"]
+        },
+        "maxPoints": {
+          "type": "integer",
+          "minimum": 16,
+          "maximum": 2000
+        },
+        "purpose": {
+          "type": "string",
+          "maxLength": 500
+        },
+        "alreadyLoadedOnly": {
+          "const": true
+        }
+      }
+    },
+    "getPickSetRequest": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["requestId", "type", "eventId", "purpose", "alreadyLoadedOnly"],
+      "properties": {
+        "requestId": {
+          "$ref": "#/$defs/id"
+        },
+        "type": {
+          "const": "get-session-picks"
+        },
+        "eventId": {
+          "$ref": "#/$defs/id"
+        },
+        "purpose": {
+          "type": "string",
+          "maxLength": 500
+        },
+        "alreadyLoadedOnly": {
+          "const": true
+        }
+      }
+    }
+  }
+}
