@@ -42,7 +42,7 @@ export function mountHistoryView(parent: HTMLElement, deps: HistoryDeps): Histor
   const root = document.createElement('div');
   root.className = 'history-view hidden';
   root.innerHTML = `
-    <header>
+    <header class="history-toolbar">
       <span class="title">history</span>
       <span class="muted hv-info"></span>
       <span class="hv-controls">

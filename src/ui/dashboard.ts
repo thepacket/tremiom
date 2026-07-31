@@ -100,6 +100,18 @@ export function mountDashboard(
     ro.observe(canvas);
   }
 
+  function refresh() {
+    for (const m of mounted.values()) {
+      const dpr = window.devicePixelRatio || 1;
+      m.canvas.width = Math.max(1, Math.floor(m.canvas.clientWidth * dpr));
+      m.canvas.height = Math.max(1, Math.floor(m.canvas.clientHeight * dpr));
+      m.ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+      try { m.def.render(m.ctx, m.canvas, m.lastFrame ?? null); }
+      catch (e) { console.warn(`[panel] refresh render failed:`, e); }
+    }
+  }
+  window.addEventListener('tremiom:plots-resized', refresh);
+
   function savePng(m: Mounted, id: string) {
     m.canvas.toBlob((blob) => {
       if (!blob) return;
@@ -153,16 +165,7 @@ export function mountDashboard(
     },
     setPerRow(n) { document.documentElement.style.setProperty('--per-row', String(clampPerRow(n))); },
     setHeight(px) { document.documentElement.style.setProperty('--panel-h', `${px}px`); },
-    refresh() {
-      for (const m of mounted.values()) {
-        const dpr = window.devicePixelRatio || 1;
-        m.canvas.width = Math.max(1, Math.floor(m.canvas.clientWidth * dpr));
-        m.canvas.height = Math.max(1, Math.floor(m.canvas.clientHeight * dpr));
-        m.ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
-        try { m.def.render(m.ctx, m.canvas, m.lastFrame ?? null); }
-        catch (e) { console.warn(`[panel] refresh render failed:`, e); }
-      }
-    },
+    refresh,
   };
 }
 

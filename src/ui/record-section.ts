@@ -40,7 +40,7 @@ export function mountRecordSection(parent: HTMLElement, deps: RecordSectionDeps)
   const root = document.createElement('div');
   root.className = 'record-section';
   root.innerHTML = `
-    <header>
+    <header class="record-toolbar">
       <span class="title">record section</span>
       <span class="muted info"></span>
       <span class="rs-comp" title="Component (rotate to radial/transverse)">
@@ -437,7 +437,7 @@ export function mountRecordSection(parent: HTMLElement, deps: RecordSectionDeps)
 
       // Label (left axis).
       ctx.fillStyle = COLOR_TEXT;
-      ctx.font = '12px ui-sans-serif, system-ui, sans-serif';
+      ctx.font = '10px ui-sans-serif, system-ui, sans-serif';
       ctx.fillText(s.nslc, PADDING.left - 8, yMid - 6);
       ctx.fillStyle = COLOR_MUTED;
       ctx.font = '11px ui-monospace, SFMono-Regular, Menlo, monospace';

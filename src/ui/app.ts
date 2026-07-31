@@ -16,7 +16,7 @@ import { openSettings } from './settings';
 import { openHelp } from './help';
 import { openAbout } from './about';
 import { initTooltips } from './tooltip';
-import { mountDashboard, type DashboardHandle, clampPerRow } from './dashboard';
+import { mountDashboard, type DashboardHandle } from './dashboard';
 import { mountAlertPicker } from './alert-picker';
 import { alerts } from './alerts';
 import { feedNetwork, resetNetwork, networkGroup } from '../panels/network';
@@ -45,17 +45,6 @@ export function mountApp(root: HTMLElement, version: string): void {
       <button class="settings-btn" id="settings-btn" title="Settings" aria-label="Settings">⚙</button>
     </div>
     <div class="topbar-row">
-      <span class="topbar-label">Panels per row</span>
-      <select id="per-row" class="per-row-input" title="Panels per row">
-        <option>1</option><option>2</option><option>3</option>
-        <option>4</option><option>5</option><option>6</option>
-      </select>
-      <span class="topbar-label">Height</span>
-      <select id="panel-height" class="per-row-input" title="Panel height (px)">
-        <option>100</option><option>150</option><option>200</option><option>250</option>
-        <option>300</option><option>350</option><option>400</option><option>450</option>
-      </select>
-      <button class="refresh-btn" id="refresh-btn" title="Redraw all panels with the current settings">Refresh</button>
       <span class="topbar-label">Alerts</span>
       <span id="alert-picker-mount"></span>
       <span class="topbar-label">Mode</span>
@@ -67,44 +56,77 @@ export function mountApp(root: HTMLElement, version: string): void {
         <span class="topbar-label">UTC</span>
         <span class="topbar-clock" id="utc-clock" title="Current UTC time"></span>
       </span>
+      <span class="topbar-spacer"></span>
+      <span class="plot-toolbar">
+        <span id="plot-mode-controls" class="plot-mode-controls"></span>
+        <span class="topbar-label secondary">Height</span>
+        <select id="panel-height" class="per-row-input" title="Plot height (px)">
+          <option>100</option><option>150</option><option>200</option><option>250</option>
+          <option>300</option><option>350</option><option>400</option><option>450</option>
+        </select>
+        <button class="refresh-btn" id="refresh-btn" title="Redraw all plots with the current settings">Refresh</button>
+      </span>
     </div>
   `;
   root.appendChild(topbar);
 
-  // ── Top region: events panel (left) + world map (right) ─────────────
-  const topRegion = document.createElement('div');
-  topRegion.className = 'top-region';
-  root.appendChild(topRegion);
+  // ── Workbench: events | map | resizable one-column plots ───────────
+  const workspace = document.createElement('div');
+  workspace.className = 'workspace';
+  root.appendChild(workspace);
+
+  const eventsPane = document.createElement('div');
+  eventsPane.className = 'events-pane';
+  workspace.appendChild(eventsPane);
 
   const sidebarHost = document.createElement('div');
   sidebarHost.className = 'sidebar-host';
-  topRegion.appendChild(sidebarHost);
+  eventsPane.appendChild(sidebarHost);
+  const sidebarToggle = document.createElement('button');
+  sidebarToggle.className = 'sidebar-toggle';
+  eventsPane.appendChild(sidebarToggle);
+
+  const centerPane = document.createElement('main');
+  centerPane.className = 'center-pane';
+  workspace.appendChild(centerPane);
 
   const mapHost = document.createElement('div');
   mapHost.className = 'map-host';
-  topRegion.appendChild(mapHost);
+  centerPane.appendChild(mapHost);
 
-  // Restore a previously dragged map height before first layout.
-  const savedMapH = localStorage.getItem('tremiom-map-h');
-  if (savedMapH) document.documentElement.style.setProperty('--map-h', savedMapH);
+  const plotSplitter = document.createElement('div');
+  plotSplitter.className = 'plot-width-splitter';
+  plotSplitter.title = 'Drag to give the plots more or less space';
+  plotSplitter.tabIndex = 0;
+  plotSplitter.setAttribute('role', 'separator');
+  plotSplitter.setAttribute('aria-label', 'Resize plots');
+  plotSplitter.setAttribute('aria-orientation', 'vertical');
+  workspace.appendChild(plotSplitter);
 
-  // ── Map resize splitter (drag to change the map height) ─────────────
-  const splitter = document.createElement('div');
-  splitter.className = 'map-splitter';
-  splitter.title = 'Drag to resize the map';
-  root.appendChild(splitter);
-  mountMapSplitter(splitter, mapHost);
+  const plotsPane = document.createElement('aside');
+  plotsPane.className = 'plots-pane';
+  workspace.appendChild(plotsPane);
 
-  // ── Body (sidebar + dashboard) ──────────────────────────────────────
+  mountSidebarCollapse(eventsPane, sidebarToggle);
+  mountPlotWidthSplitter(plotSplitter, plotsPane);
+
+  // ── Independently scrollable plot inspector ─────────────────────────
   const plotScrollShell = document.createElement('div');
   plotScrollShell.className = 'plot-scroll-shell';
-  root.appendChild(plotScrollShell);
+  plotsPane.appendChild(plotScrollShell);
   const body = document.createElement('div');
   body.className = 'body';
+  body.id = 'plot-viewport';
   plotScrollShell.appendChild(body);
   const plotScrollRail = document.createElement('div');
   plotScrollRail.className = 'plot-scroll-rail';
-  plotScrollRail.setAttribute('aria-hidden', 'true');
+  plotScrollRail.tabIndex = 0;
+  plotScrollRail.setAttribute('role', 'scrollbar');
+  plotScrollRail.setAttribute('aria-label', 'Scroll plots');
+  plotScrollRail.setAttribute('aria-controls', body.id);
+  plotScrollRail.setAttribute('aria-orientation', 'vertical');
+  plotScrollRail.setAttribute('aria-valuemin', '0');
+  plotScrollRail.setAttribute('aria-valuemax', '100');
   plotScrollRail.innerHTML = '<div class="plot-scroll-thumb"></div>';
   plotScrollShell.appendChild(plotScrollRail);
   mountPlotScrollbar(body, plotScrollRail);
@@ -179,6 +201,26 @@ export function mountApp(root: HTMLElement, version: string): void {
     units: () => currentUnits,
     filter: () => currentFilter,
   });
+  const plotModeControls = document.getElementById('plot-mode-controls') as HTMLElement;
+  const recordRoot = eventHost.querySelector('.record-section') as HTMLElement;
+  const recordToolbar = recordRoot.querySelector('.record-toolbar') as HTMLElement;
+  const historyRoot = historyHost.querySelector('.history-view') as HTMLElement;
+  const historyToolbar = historyRoot.querySelector('.history-toolbar') as HTMLElement;
+
+  function syncPlotModeControls(mode: 'live' | 'event' | 'history'): void {
+    if (recordToolbar.parentElement !== recordRoot) recordRoot.prepend(recordToolbar);
+    if (historyToolbar.parentElement !== historyRoot) historyRoot.prepend(historyToolbar);
+    recordRoot.classList.remove('toolbar-detached');
+    historyRoot.classList.remove('toolbar-detached');
+    plotModeControls.replaceChildren();
+    if (mode === 'event') {
+      plotModeControls.appendChild(recordToolbar);
+      recordRoot.classList.add('toolbar-detached');
+    } else if (mode === 'history') {
+      plotModeControls.appendChild(historyToolbar);
+      historyRoot.classList.add('toolbar-detached');
+    }
+  }
 
   // The dashboard ⇄ subscription bridge: the dashboard tells us which
   // panels are mounted; we re-subscribe with that list so the worker
@@ -215,10 +257,9 @@ export function mountApp(root: HTMLElement, version: string): void {
     resubscribe();
   }
   let clientReady = false;
-  const PER_ROW_KEY = 'tremiom-panels-per-row';
   const HEIGHT_KEY = 'tremiom-panel-height';
   const HEIGHT_OPTIONS = [100, 150, 200, 250, 300, 350, 400, 450];
-  const initialPerRow = clampPerRow(Number(localStorage.getItem(PER_ROW_KEY)) || 2);
+  const initialPerRow = 1;
   const initialHeight = HEIGHT_OPTIONS.includes(Number(localStorage.getItem(HEIGHT_KEY)))
     ? Number(localStorage.getItem(HEIGHT_KEY)) : 200;
   const dashboard: DashboardHandle = mountDashboard(dashHost, {
@@ -228,16 +269,6 @@ export function mountApp(root: HTMLElement, version: string): void {
     height: initialHeight,
   });
   activePanels = dashboard.activePanels();
-
-  // "Panels per row" controls how many panels appear per grid row.
-  const perRowInput = document.getElementById('per-row') as HTMLSelectElement;
-  perRowInput.value = String(initialPerRow);
-  perRowInput.addEventListener('change', () => {
-    const n = clampPerRow(Number(perRowInput.value));
-    perRowInput.value = String(n);
-    dashboard.setPerRow(n);
-    localStorage.setItem(PER_ROW_KEY, String(n));
-  });
 
   // "Height" controls the pixel height of each panel row.
   const heightInput = document.getElementById('panel-height') as HTMLSelectElement;
@@ -328,6 +359,7 @@ export function mountApp(root: HTMLElement, version: string): void {
     historyHost.classList.add('hidden');
     historyView.hide();
     currentMode = 'live';
+    syncPlotModeControls('live');
     setModeSelect('live');
   }
   function showEvent() {
@@ -336,6 +368,7 @@ export function mountApp(root: HTMLElement, version: string): void {
     historyHost.classList.add('hidden');
     historyView.hide();
     currentMode = 'event';
+    syncPlotModeControls('event');
     setModeSelect('event');
   }
   function showHistory() {
@@ -344,6 +377,7 @@ export function mountApp(root: HTMLElement, version: string): void {
     historyHost.classList.remove('hidden');
     historyView.show();
     currentMode = 'history';
+    syncPlotModeControls('history');
     setModeSelect('history');
   }
 
@@ -537,7 +571,7 @@ export function mountApp(root: HTMLElement, version: string): void {
     return 'AI action rejected: unsupported instruction.';
   }
 
-  mountAiTerminal(root, {
+  mountAiTerminal(centerPane, {
     getSessionSnapshot: () => {
       const plots = currentMode === 'event'
         ? recordSection.aiSnapshot()
@@ -574,36 +608,76 @@ export function mountApp(root: HTMLElement, version: string): void {
   client.subscribe(currentStation, subscribedPanels());
 }
 
-/** Drag-to-resize the map height. Updates the `--map-h` CSS variable (which
- *  drives both the map host and the body offset below it) and persists the
- *  chosen height to localStorage. The map canvas's ResizeObserver redraws. */
-function mountMapSplitter(splitter: HTMLElement, mapHost: HTMLElement): void {
-  const MIN_H = 120;
-  let dragging = false, startY = 0, startH = 0;
+/** Collapsible event rail. Keeping a narrow visible handle makes reopening it
+ * discoverable without stealing useful map space. */
+function mountSidebarCollapse(pane: HTMLElement, toggle: HTMLButtonElement): void {
+  const KEY = 'tremiom-events-collapsed';
+  let collapsed = localStorage.getItem(KEY) === 'true';
+  const render = () => {
+    pane.classList.toggle('collapsed', collapsed);
+    toggle.textContent = collapsed ? '›' : '‹';
+    toggle.title = collapsed ? 'Expand events' : 'Collapse events';
+    toggle.setAttribute('aria-label', toggle.title);
+    toggle.setAttribute('aria-expanded', String(!collapsed));
+    localStorage.setItem(KEY, String(collapsed));
+  };
+  toggle.addEventListener('click', () => { collapsed = !collapsed; render(); });
+  render();
+}
+
+/** Vertical divider between the central map and the one-column plot
+ * inspector. Width is persisted because plot readability is task-specific. */
+function mountPlotWidthSplitter(splitter: HTMLElement, plotsPane: HTMLElement): void {
+  const KEY = 'tremiom-plots-width';
+  const MIN_W = 300;
+  const maxWidth = () => Math.max(MIN_W, window.innerWidth - 360);
+  let resizeFrame = 0;
+  const setWidth = (requested: number) => {
+    const width = Math.round(Math.max(MIN_W, Math.min(maxWidth(), requested)));
+    document.documentElement.style.setProperty('--plots-w', `${width}px`);
+    splitter.setAttribute('aria-valuemin', String(MIN_W));
+    splitter.setAttribute('aria-valuemax', String(maxWidth()));
+    splitter.setAttribute('aria-valuenow', String(width));
+    cancelAnimationFrame(resizeFrame);
+    resizeFrame = requestAnimationFrame(() => window.dispatchEvent(new Event('tremiom:plots-resized')));
+    return width;
+  };
+  const saved = Number(localStorage.getItem(KEY));
+  setWidth(Number.isFinite(saved) && saved >= MIN_W ? saved : plotsPane.getBoundingClientRect().width || 440);
+  let dragging = false, startX = 0, startW = 0;
 
   splitter.addEventListener('pointerdown', (e) => {
     dragging = true;
-    startY = e.clientY;
-    startH = mapHost.getBoundingClientRect().height;
+    startX = e.clientX;
+    startW = plotsPane.getBoundingClientRect().width;
     splitter.setPointerCapture(e.pointerId);
     document.body.style.userSelect = 'none';
   });
   splitter.addEventListener('pointermove', (e) => {
     if (!dragging) return;
-    const maxH = window.innerHeight - 160;
-    const h = Math.max(MIN_H, Math.min(maxH, startH + (e.clientY - startY)));
-    document.documentElement.style.setProperty('--map-h', `${Math.round(h)}px`);
+    setWidth(startW + (startX - e.clientX));
   });
   const end = (e: PointerEvent) => {
     if (!dragging) return;
     dragging = false;
     document.body.style.userSelect = '';
     try { splitter.releasePointerCapture(e.pointerId); } catch { /* not captured */ }
-    const h = getComputedStyle(document.documentElement).getPropertyValue('--map-h').trim();
-    if (h) localStorage.setItem('tremiom-map-h', h);
+    const width = plotsPane.getBoundingClientRect().width;
+    localStorage.setItem(KEY, String(Math.round(width)));
   };
   splitter.addEventListener('pointerup', end);
   splitter.addEventListener('pointercancel', end);
+  splitter.addEventListener('keydown', (event) => {
+    let width = plotsPane.getBoundingClientRect().width;
+    if (event.key === 'ArrowLeft') width += 24;
+    else if (event.key === 'ArrowRight') width -= 24;
+    else if (event.key === 'Home') width = MIN_W;
+    else if (event.key === 'End') width = maxWidth();
+    else return;
+    localStorage.setItem(KEY, String(setWidth(width)));
+    event.preventDefault();
+  });
+  window.addEventListener('resize', () => setWidth(plotsPane.getBoundingClientRect().width));
 }
 
 /** Always-visible plots scrollbar. macOS hides native overlay scrollbars even
@@ -621,6 +695,7 @@ function mountPlotScrollbar(viewport: HTMLElement, rail: HTMLElement): void {
     const track = rail.clientHeight;
     const scrollable = total > visible + 1 && track > 0;
     rail.classList.toggle('inactive', !scrollable);
+    rail.setAttribute('aria-disabled', String(!scrollable));
     if (!scrollable) {
       thumb.style.height = `${track}px`;
       thumb.style.transform = 'translateY(0)';
@@ -629,6 +704,7 @@ function mountPlotScrollbar(viewport: HTMLElement, rail: HTMLElement): void {
     thumbHeight = Math.max(28, Math.round(track * visible / total));
     const travel = Math.max(0, track - thumbHeight);
     const progress = viewport.scrollTop / Math.max(1, total - visible);
+    rail.setAttribute('aria-valuenow', String(Math.round(progress * 100)));
     thumb.style.height = `${thumbHeight}px`;
     thumb.style.transform = `translateY(${Math.round(travel * progress)}px)`;
   };
@@ -668,6 +744,18 @@ function mountPlotScrollbar(viewport: HTMLElement, rail: HTMLElement): void {
     const rect = rail.getBoundingClientRect();
     const ratio = (event.clientY - rect.top) / Math.max(1, rect.height);
     viewport.scrollTop = ratio * Math.max(0, viewport.scrollHeight - viewport.clientHeight);
+  });
+
+  rail.addEventListener('keydown', (event) => {
+    const page = Math.max(80, Math.round(viewport.clientHeight * 0.85));
+    if (event.key === 'ArrowDown') viewport.scrollBy({ top: 48 });
+    else if (event.key === 'ArrowUp') viewport.scrollBy({ top: -48 });
+    else if (event.key === 'PageDown') viewport.scrollBy({ top: page });
+    else if (event.key === 'PageUp') viewport.scrollBy({ top: -page });
+    else if (event.key === 'Home') viewport.scrollTo({ top: 0 });
+    else if (event.key === 'End') viewport.scrollTo({ top: viewport.scrollHeight });
+    else return;
+    event.preventDefault();
   });
   scheduleUpdate();
 }

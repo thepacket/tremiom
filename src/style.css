@@ -8,12 +8,9 @@
   --panel-border: #2a2a2a;
   /* Two-row topbar height. Everything below the topbar offsets by this. */
   --topbar-h: 64px;
-  /* World-map header height. Tall enough that the inhabited latitude band
-   * (and station markers) read clearly instead of being squished. */
-  --map-h: 340px;
-  /* Respect the user's map size while preserving a usable plots viewport
-   * above an expanded AI terminal on shorter screens. */
-  --effective-map-h: min(var(--map-h), max(100px, calc(100vh - var(--topbar-h) - var(--statusbar-h) - var(--ai-terminal-h) - 218px)));
+  --events-w: 280px;
+  --events-collapsed-w: 28px;
+  --plots-w: 440px;
   /* Fixed bottom status bar height. */
   --statusbar-h: 24px;
   /* Docked AI terminal; changed by its collapse button and splitter. */
@@ -26,19 +23,20 @@
 html, body {
   margin: 0;
   padding: 0;
-  min-height: 100%;
+  width: 100%;
+  height: 100%;
+  overflow: hidden;
   background: var(--bg);
   color: var(--fg);
 }
 
 #app {
-  /* Block flow: topbar (sticky) + map + body stack vertically. The
-   * document scrollbar appears when total content exceeds the
-   * viewport — there's no internal scrolling area to chase. */
-  display: block;
-  min-height: 100vh;
-  /* Reserve space for the fixed bottom status bar so it never covers content. */
-  padding-bottom: calc(var(--statusbar-h) + var(--ai-terminal-h));
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  grid-template-rows: var(--topbar-h) minmax(0, 1fr);
+  width: 100%;
+  height: calc(100vh - var(--statusbar-h));
+  overflow: hidden;
 }
 
 /* Fixed bottom status bar — connection status centered. */
@@ -58,13 +56,59 @@ html, body {
   z-index: 40;
 }
 
-/* Top region: events panel (left) + world map (right), both --map-h tall. */
-.top-region {
+/* Quantiom-style workbench: collapsible events, central map, plot inspector. */
+.workspace {
   display: grid;
-  grid-template-columns: 280px 1fr;
-  height: var(--effective-map-h);
+  grid-template-columns: var(--events-w) minmax(260px, 1fr) 6px var(--plots-w);
+  width: 100%;
+  max-width: 100vw;
+  min-width: 0;
+  min-height: 0;
+  overflow: hidden;
 }
 
+.events-pane,
+.center-pane,
+.plots-pane { min-width: 0; min-height: 0; height: 100%; }
+.events-pane {
+  position: relative;
+  border-right: 1px solid var(--panel-border);
+  background: #101010;
+}
+.events-pane.collapsed { width: var(--events-collapsed-w); }
+.workspace:has(.events-pane.collapsed) {
+  grid-template-columns: var(--events-collapsed-w) minmax(260px, 1fr) 6px var(--plots-w);
+}
+.events-pane.collapsed .sidebar-host { display: none; }
+.sidebar-toggle {
+  position: absolute;
+  top: 6px;
+  right: -1px;
+  z-index: 4;
+  width: 22px;
+  height: 24px;
+  padding: 0;
+  border: 1px solid var(--panel-border);
+  border-right: 0;
+  border-radius: 4px 0 0 4px;
+  background: #181d20;
+  color: var(--accent);
+  font: 18px/1 ui-sans-serif, system-ui, sans-serif;
+  cursor: pointer;
+}
+.events-pane.collapsed .sidebar-toggle {
+  right: 3px;
+  border-right: 1px solid var(--panel-border);
+  border-radius: 4px;
+}
+.sidebar-toggle:hover { color: #fff; border-color: var(--accent); }
+
+.center-pane {
+  display: grid;
+  grid-template-rows: minmax(0, 1fr) var(--ai-terminal-h);
+  overflow: hidden;
+  background: var(--bg);
+}
 .map-host {
   height: 100%;
   min-height: 0;
@@ -72,27 +116,33 @@ html, body {
   position: relative;
 }
 
-/* Drag-to-resize bar below the map (see mountMapSplitter in ui/app.ts). */
-.map-splitter {
-  height: 6px;
+.plot-width-splitter {
+  width: 6px;
+  height: 100%;
   background: var(--panel-border);
-  cursor: ns-resize;
+  cursor: ew-resize;
   position: relative;
   touch-action: none;
 }
-.map-splitter::after {
+.plot-width-splitter::after {
   content: "";
   position: absolute;
   left: 50%;
   top: 50%;
   transform: translate(-50%, -50%);
-  width: 36px;
-  height: 2px;
+  width: 2px;
+  height: 36px;
   border-radius: 1px;
   background: var(--muted);
 }
-.map-splitter:hover { background: var(--accent); }
-.map-splitter:hover::after { background: #fff; }
+.plot-width-splitter:hover { background: var(--accent); }
+.plot-width-splitter:hover::after { background: #fff; }
+.plot-width-splitter:focus-visible { outline: 1px solid #fff; outline-offset: -1px; background: var(--accent); }
+.plots-pane {
+  display: block;
+  background: #0b0d0e;
+  overflow: hidden;
+}
 
 .world-map { width: 100%; height: 100%; position: relative; }
 .world-map canvas { display: block; width: 100%; height: 100%; cursor: crosshair; }
@@ -113,8 +163,9 @@ html, body {
 
 .plot-scroll-shell {
   position: relative;
-  height: max(212px, calc(100vh - var(--topbar-h) - var(--effective-map-h) - 6px - var(--statusbar-h) - var(--ai-terminal-h)));
-  min-height: 212px;
+  width: 100%;
+  height: 100%;
+  min-height: 0;
 }
 .body {
   /* Keep plots independently scrollable above the docked AI terminal. */
@@ -123,6 +174,7 @@ html, body {
   height: 100%;
   min-height: 0;
   overflow-y: auto;
+  overflow-x: hidden;
   scrollbar-width: none;
 }
 .body::-webkit-scrollbar { display: none; }
@@ -140,6 +192,7 @@ html, body {
   cursor: pointer;
 }
 .plot-scroll-rail.inactive { opacity: 0.35; cursor: default; }
+.plot-scroll-rail:focus-visible { outline: 1px solid var(--accent); outline-offset: -1px; }
 .plot-scroll-thumb {
   width: 100%;
   min-height: 28px;
@@ -160,12 +213,10 @@ html, body {
 }
 .analysis-panels::-webkit-scrollbar-thumb:hover { background: var(--accent); }
 
-/* display:contents so .sidebar becomes a direct grid child of .top-region
- * (the left 280px column). */
-.sidebar-host { display: contents; }
+.sidebar-host { width: 100%; height: 100%; }
 
 .sidebar {
-  border-right: 1px solid var(--panel-border);
+  border-right: 0;
   display: grid;
   grid-template-rows: 28px auto 1fr;
   min-height: 0;
@@ -178,7 +229,7 @@ html, body {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  padding: 0 8px;
+  padding: 0 34px 0 8px;
   font-size: 12px;
   color: var(--muted);
   border-bottom: 1px solid var(--panel-border);
@@ -250,6 +301,9 @@ html, body {
 .settings-btn:hover { color: var(--fg); border-color: var(--panel-border); }
 
 /* History (waveform-browser) mode */
+.history-host,
+.event-host,
+.dash-host { width: 100%; min-width: 0; }
 .history-host { min-height: 0; }
 .history-host.hidden { display: none; }
 .history-view {
@@ -257,18 +311,26 @@ html, body {
   grid-template-rows: 32px 360px auto;
   height: auto;
   min-height: 0;
+  min-width: 0;
+  width: 100%;
   background: var(--panel-bg);
 }
+.history-view.toolbar-detached { grid-template-rows: 360px auto; }
 .hv-panels { min-height: 0; height: auto; border-top: 1px solid var(--panel-border); }
 .history-view.hidden { display: none; }
-.history-view header {
+.history-view header,
+.history-toolbar {
   display: flex; align-items: center; gap: 10px;
   padding: 0 10px; border-bottom: 1px solid var(--panel-border);
   font-size: 12px;
+  min-width: 0;
+  overflow: hidden;
 }
-.history-view .title { color: var(--accent); font-weight: 600; }
-.history-view .hv-info { flex: 1; font-family: ui-monospace, SFMono-Regular, Menlo, monospace; }
-.hv-controls { display: inline-flex; gap: 5px; align-items: center; }
+.history-view .title,
+.history-toolbar .title { color: var(--accent); font-weight: 600; }
+.history-view .hv-info,
+.history-toolbar .hv-info { flex: 1; font-family: ui-monospace, SFMono-Regular, Menlo, monospace; }
+.hv-controls { display: inline-flex; gap: 5px; align-items: center; min-width: 0; overflow-x: auto; }
 .hv-btn {
   background: #1a1a1a; color: var(--fg); border: 1px solid var(--panel-border);
   border-radius: 3px; padding: 2px 8px; font: inherit; font-size: 12px; cursor: pointer;
@@ -292,22 +354,26 @@ html, body {
  * spectrogram / PSD / spectrum canvases over a fetched window. */
 .analysis-panels {
   display: grid;
-  grid-template-columns: repeat(var(--per-row, 2), minmax(0, 1fr));
+  grid-template-columns: minmax(0, 1fr);
   grid-auto-rows: var(--panel-h, 200px);
   gap: 1px;
   background: var(--panel-border);
   height: auto;
   min-height: 0;
+  min-width: 0;
+  width: 100%;
   overflow: visible;
 }
 .ap-cell {
   display: grid;
   grid-template-rows: 18px minmax(0, 1fr);
   min-height: 0;
+  min-width: 0;
+  overflow: hidden;
   background: #0d0d0d;
 }
 .ap-head { font-size: 11px; color: var(--muted); padding: 2px 8px; }
-.ap-cell canvas { display: block; width: 100%; height: 100%; min-height: 0; }
+.ap-cell canvas { display: block; width: 100%; height: 100%; min-width: 0; min-height: 0; }
 
 .settings-body { padding: 14px 16px; display: grid; gap: 14px; }
 .setting-row {
@@ -462,11 +528,14 @@ html, body {
 
 .main-area {
   display: grid;
+  width: 100%;
+  min-width: 0;
+  overflow-x: hidden;
   /* Grid + event-host share the same cell; whichever is not .hidden
    * is what the user sees. The min-height gives the event-mode
    * record-section panel a defined height (its 30 px header +
    * 1 fr body needs a parent height to size to). */
-  min-height: calc(100vh - var(--topbar-h) - var(--effective-map-h));
+  min-height: 100%;
 }
 .main-area > * { grid-area: 1 / 1 / 2 / 2; }
 .main-area .hidden { display: none !important; }
@@ -477,20 +546,28 @@ html, body {
   grid-template-rows: 30px 360px auto;
   height: auto;
   min-height: 0;
+  min-width: 0;
+  width: 100%;
   background: var(--panel-bg);
   overflow: visible;
 }
+.record-section.toolbar-detached { grid-template-rows: 360px auto; }
 .rs-panels { min-height: 0; height: auto; border-top: 1px solid var(--panel-border); }
-.record-section header {
+.record-section header,
+.record-toolbar {
   padding: 0 10px;
   border-bottom: 1px solid var(--panel-border);
   display: flex;
   align-items: center;
   gap: 10px;
   font-size: 12px;
+  min-width: 0;
+  overflow-x: auto;
 }
-.record-section .title { color: var(--accent); font-weight: 600; }
-.record-section .info { font-size: 12px; flex: 1; }
+.record-section .title,
+.record-toolbar .title { color: var(--accent); font-weight: 600; }
+.record-section .info,
+.record-toolbar .info { font-size: 12px; flex: 1; }
 .rs-beachball { display: none; width: 24px; height: 24px; margin-left: auto; }
 .rs-export { display: inline-flex; gap: 6px; margin-left: 10px; }
 .rs-export.hidden { display: none; }
@@ -573,6 +650,30 @@ html, body {
 }
 .topbar-row:first-child { border-bottom: 1px solid #1a1a1a; }
 .topbar-spacer { flex: 1; }
+.plot-toolbar { display: inline-flex; align-items: center; gap: 8px; white-space: nowrap; }
+.plot-toolbar .topbar-label.secondary { color: var(--accent); }
+.plot-mode-controls {
+  display: inline-flex;
+  align-items: center;
+  min-width: 0;
+  overflow: visible;
+}
+.plot-mode-controls:empty { display: none; }
+.plot-mode-controls > .record-toolbar,
+.plot-mode-controls > .history-toolbar {
+  display: flex;
+  align-items: center;
+  width: max-content;
+  min-width: max-content;
+  height: 30px;
+  padding: 0 4px;
+  gap: 7px;
+  border: 0;
+  background: transparent;
+}
+.plot-mode-controls .info,
+.plot-mode-controls .hv-info,
+.plot-mode-controls .title { display: none; }
 .utc-clock-box {
   display: inline-flex;
   align-items: center;
@@ -597,15 +698,16 @@ html, body {
   letter-spacing: 0.5px;
 }
 
-/* ── Panel grid (all panels, alphabetical, N per row) ────────────────── */
-.dash-host { padding: 6px; }
+/* ── Plot inspector: one readable plot per row ───────────────────────── */
+.dash-host { min-width: 0; padding: 6px; }
 
 /* Auto-filling panel grid: every panel, alphabetical, --per-row per row. */
 .panel-grid {
   display: grid;
-  grid-template-columns: repeat(var(--per-row, 2), minmax(0, 1fr));
+  grid-template-columns: minmax(0, 1fr);
   grid-auto-rows: var(--panel-h, 200px);
   gap: 6px;
+  min-width: 0;
 }
 /* The featured Helicorder spans the whole first row, double height. */
 .panel-grid .panel-wide { grid-column: 1 / -1; grid-row: span 2; }
@@ -733,12 +835,10 @@ html, body {
 
 /* ── Session-scoped AI terminal ────────────────────────────────────── */
 .ai-terminal {
-  position: fixed;
-  left: 0;
-  right: 0;
-  bottom: var(--statusbar-h);
-  height: var(--ai-terminal-h);
-  z-index: 39;
+  position: relative;
+  width: 100%;
+  height: 100%;
+  z-index: 10;
   display: grid;
   grid-template-rows: 5px 32px minmax(0, 1fr) auto;
   background: #0d0d0d;
@@ -1212,6 +1312,7 @@ html, body {
 /* ── Responsive / mobile ─────────────────────────────────────────────── */
 @media (max-width: 1100px) {
   /* Let each row wrap and the bar grow to fit on narrower screens. */
+  :root { --topbar-h: 104px; --plots-w: 380px; }
   .topbar { height: auto; }
   .topbar-row { flex-wrap: wrap; height: auto; min-height: 30px; padding: 4px 8px; gap: 8px; }
 }
@@ -1221,20 +1322,17 @@ html, body {
    * bar pinned to the top eats the screen). */
   .topbar { position: static; }
 
-  /* Stack the top region: events panel above a 150px map. */
-  .top-region { grid-template-columns: 1fr; height: auto; }
-  .map-host { height: 150px; }
-  .sidebar {
-    height: 240px;
-    border-right: none;
-    border-bottom: 1px solid var(--panel-border);
+  :root { --topbar-h: 126px; --events-w: 220px; --plots-w: min(360px, 46vw); }
+  .workspace { grid-template-columns: var(--events-w) minmax(220px, 1fr) 6px var(--plots-w); overflow-x: auto; }
+  .workspace:has(.events-pane.collapsed) {
+    grid-template-columns: var(--events-collapsed-w) minmax(220px, 1fr) 6px var(--plots-w);
   }
-  /* Force a single panel column on phones regardless of the "Per row" field. */
-  .panel-grid, .analysis-panels { grid-template-columns: 1fr; }
+  .sidebar { border-bottom: 0; }
+  .panel-grid, .analysis-panels { grid-template-columns: 1fr !important; }
   .dash-host { padding: 4px; }
-  .plot-scroll-shell { height: auto; min-height: 0; }
-  .plot-scroll-rail { display: none; }
-  .body { width: 100%; height: auto; min-height: 0; overflow-y: visible; }
+  .plot-scroll-shell { height: 100%; min-height: 0; }
+  .plot-scroll-rail { display: block; }
+  .body { width: calc(100% - 16px); height: 100%; min-height: 0; overflow-y: auto; }
 
   /* Modals go near-fullscreen so the search / settings forms are usable. */
   .modal { width: 96vw; max-height: 90vh; }

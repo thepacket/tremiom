@@ -138,6 +138,13 @@ export function mountAnalysisPanels(parent: HTMLElement): AnalysisPanelsHandle {
     }
   }
 
+  window.addEventListener('tremiom:plots-resized', () => {
+    requestAnimationFrame(() => {
+      if (!root.getClientRects().length) return;
+      for (const panel of PANELS) redraw(panel.id);
+    });
+  });
+
   function update(opts: AnalysisUpdate): void {
     token++;                       // invalidate any in-flight fetch (window changed)
     lastOpts = opts;
