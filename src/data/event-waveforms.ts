@@ -2,6 +2,7 @@
  *  server-side /api/event/waveforms endpoint (workers/event_fetch.py). */
 
 import type { SeismicEvent } from './events';
+import type { FilterSpec } from './filters';
 
 export interface EventStationWaveform {
   nslc: string;
@@ -26,13 +27,15 @@ export interface EventWaveforms {
   lat: number;
   lon: number;
   windowSecs: [number, number];
+  processing?: { units: 'counts'; filter: Omit<FilterSpec, 'label'> };
   stations: EventStationWaveform[];
   errors?: Array<{ nslc: string; error: string }>;
   taupError?: string;
 }
 
 export async function fetchEventWaveforms(
-  e: SeismicEvent, opts: { nStations?: number; component?: 'Z' | 'R' | 'T' } = {}
+  e: SeismicEvent,
+  opts: { nStations?: number; component?: 'Z' | 'R' | 'T'; filter?: FilterSpec } = {}
 ): Promise<EventWaveforms> {
   const body = {
     eventId: e.id,
@@ -41,6 +44,11 @@ export async function fetchEventWaveforms(
     timeMs: e.timeMs,
     nStations: opts.nStations ?? 6,
     component: opts.component ?? 'Z',
+    filter: opts.filter ? {
+      kind: opts.filter.kind,
+      ...(opts.filter.low == null ? {} : { low: opts.filter.low }),
+      ...(opts.filter.high == null ? {} : { high: opts.filter.high }),
+    } : { kind: 'none' },
   };
   const r = await fetch('/api/event/waveforms', {
     method: 'POST',

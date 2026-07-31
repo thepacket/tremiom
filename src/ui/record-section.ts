@@ -11,7 +11,8 @@ import {
   fetchEventWaveforms,
 } from '../data/event-waveforms';
 import { mountAnalysisPanels } from './analysis-panels';
-import { DEFAULT_FILTER } from '../data/filters';
+import type { FilterSpec } from '../data/filters';
+import { STATION_PRESETS } from '../data/stations';
 
 const PADDING = { top: 24, right: 56, bottom: 28, left: 110 };
 const COLOR_TRACE = '#7ad';
@@ -24,10 +25,18 @@ const COLOR_S     = '#ff6e6e';
 
 export interface RecordSectionHandle {
   setEvent(event: SeismicEvent | null): Promise<void>;
+  refreshAnalysis(): void;
+  refreshFilter(): void;
+  aiSnapshot(): { visiblePlots: string[]; plotFrames: Record<string, unknown> };
   destroy(): void;
 }
 
-export function mountRecordSection(parent: HTMLElement): RecordSectionHandle {
+interface RecordSectionDeps {
+  units(): string;
+  filter(): FilterSpec;
+}
+
+export function mountRecordSection(parent: HTMLElement, deps: RecordSectionDeps): RecordSectionHandle {
   const root = document.createElement('div');
   root.className = 'record-section';
   root.innerHTML = `
@@ -316,6 +325,7 @@ export function mountRecordSection(parent: HTMLElement): RecordSectionHandle {
 
   let waveforms: EventWaveforms | null = null;
   let currentEvent: SeismicEvent | null = null;
+  let analysisNslc = '';
   let token = 0; // race-guard for overlapping fetches
 
   // Manual phase picks: per-station P/S times in seconds from origin.
@@ -600,6 +610,8 @@ export function mountRecordSection(parent: HTMLElement): RecordSectionHandle {
       return;
     }
     analysisPanels.clear();
+    analysisNslc = nearestPreset(e).nslc;
+    updateAnalysis(e, analysisNslc);
     // Restore (or create) this event's pick set.
     picks = picksByEvent.get(e.id) ?? new Map();
     picksByEvent.set(e.id, picks);
@@ -611,7 +623,11 @@ export function mountRecordSection(parent: HTMLElement): RecordSectionHandle {
     void loadMechanism(e, myToken);
     void loadMagnitude(e, myToken);
     try {
-      const w = await fetchEventWaveforms(e, { nStations: 6, component });
+      const w = await fetchEventWaveforms(e, {
+        nStations: 6,
+        component,
+        filter: deps.filter(),
+      });
       if (myToken !== token || currentEvent?.id !== e.id) return; // superseded
       waveforms = w;
       if (!w.stations.length) {
@@ -629,15 +645,12 @@ export function mountRecordSection(parent: HTMLElement): RecordSectionHandle {
         exportBar.classList.remove('hidden'); pickBar.classList.remove('hidden');
       }
       draw();
-      // Compute the analysis panels for the nearest station over its window.
+      // The expected nearest station started computing in parallel above.
+      // If it was unavailable, fall back to the nearest station that returned.
       const nearest = [...w.stations].sort((a, b) => a.distKm - b.distKm)[0];
-      if (nearest) {
-        const winS = nearest.sr > 0 && nearest.data.length
-          ? nearest.data.length / nearest.sr : 120;
-        analysisPanels.update({
-          nslc: nearest.nslc, startMs: nearest.t0Ms, durS: winS,
-          units: 'counts', filter: DEFAULT_FILTER,
-        });
+      if (nearest && nearest.nslc !== analysisNslc) {
+        analysisNslc = nearest.nslc;
+        updateAnalysis(e, analysisNslc);
       }
     } catch (err) {
       if (myToken !== token) return;
@@ -647,11 +660,65 @@ export function mountRecordSection(parent: HTMLElement): RecordSectionHandle {
 
   return {
     setEvent,
+    refreshAnalysis() {
+      if (!currentEvent) return;
+      const nearest = waveforms?.stations.length
+        ? [...waveforms.stations].sort((a, b) => a.distKm - b.distKm)[0]
+        : nearestPreset(currentEvent);
+      analysisNslc = nearest.nslc;
+      updateAnalysis(currentEvent, analysisNslc);
+    },
+    refreshFilter() {
+      if (currentEvent) void setEvent(currentEvent);
+    },
+    aiSnapshot() {
+      const analysis = analysisPanels.snapshotFrames();
+      return {
+        visiblePlots: [
+          ...(waveforms?.stations.length ? ['record-section'] : []),
+          ...Object.keys(analysis),
+        ],
+        plotFrames: {
+          ...(waveforms?.stations.length ? {
+            'record-section': { ...waveforms, component },
+          } : {}),
+          ...analysis,
+        },
+      };
+    },
     destroy() {
       ro.disconnect();
       root.remove();
     },
   };
+
+  function updateAnalysis(event: SeismicEvent, nslc: string): void {
+    analysisPanels.update({
+      nslc,
+      startMs: event.timeMs - 60_000,
+      durS: 660,
+      units: deps.units(),
+      filter: deps.filter(),
+    });
+  }
+}
+
+function nearestPreset(event: SeismicEvent): { nslc: string; distKm?: number } {
+  let nearest = STATION_PRESETS[0];
+  let best = Infinity;
+  for (const station of STATION_PRESETS) {
+    const distance = greatCircleKm(event.lat, event.lon, station.lat, station.lon);
+    if (distance < best) { best = distance; nearest = station; }
+  }
+  return { nslc: nearest.nslc, distKm: best };
+}
+
+function greatCircleKm(lat1: number, lon1: number, lat2: number, lon2: number): number {
+  const radians = Math.PI / 180;
+  const p1 = lat1 * radians, p2 = lat2 * radians;
+  const dp = (lat2 - lat1) * radians, dl = (lon2 - lon1) * radians;
+  const a = Math.sin(dp / 2) ** 2 + Math.cos(p1) * Math.cos(p2) * Math.sin(dl / 2) ** 2;
+  return 6371 * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
 }
 
 /** Pick a clean tick spacing for an axis of the given total span. */

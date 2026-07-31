@@ -21,6 +21,12 @@ export interface OpenRouterModel {
     request?: string;
   };
   supported_parameters?: string[];
+  reasoning?: {
+    mandatory?: boolean;
+    default_enabled?: boolean;
+    supported_efforts?: string[] | null;
+    default_effort?: string;
+  };
 }
 
 export interface OpenRouterSettings {
@@ -94,7 +100,9 @@ export function modelSupportsText(model: OpenRouterModel): boolean {
 
 export function modelSupportsStructuredOutput(model: OpenRouterModel | undefined): boolean {
   const params = model?.supported_parameters || [];
-  return params.includes('structured_outputs') || params.includes('response_format');
+  // `response_format` can mean JSON-object mode only. OpenRouter advertises
+  // JSON Schema compatibility separately as `structured_outputs`.
+  return params.includes('structured_outputs');
 }
 
 export async function loadOpenRouterModels(
@@ -132,7 +140,6 @@ const RESPONSE_SCHEMA = {
     },
     actions: {
       type: 'array',
-      maxItems: 8,
       items: {
         type: 'object',
         additionalProperties: false,
@@ -159,13 +166,27 @@ export async function requestOpenRouterCompletion(args: {
   signal?: AbortSignal;
 }): Promise<OpenRouterCompletion> {
   const structured = modelSupportsStructuredOutput(args.model);
+  const supported = new Set(args.model.supported_parameters || []);
+  const jsonObjectMode = !structured && supported.has('response_format');
   const requestBody: Record<string, unknown> = {
     model: args.model.id,
     messages: args.messages,
-    temperature: 0.2,
-    max_completion_tokens: 3000,
     stream: false,
   };
+  const reasoningEfforts = args.model.reasoning?.supported_efforts;
+  const reasoningEffort = supported.has('reasoning')
+    ? (reasoningEfforts == null || reasoningEfforts.includes('low') ? 'low'
+      : reasoningEfforts?.includes('minimal') ? 'minimal' : null)
+    : null;
+  if (reasoningEffort) {
+    requestBody.reasoning = { effort: reasoningEffort, exclude: true };
+  }
+  // Structured Markdown with equations and tables needs enough room for the
+  // closing JSON envelope. Providers may otherwise return an unusable partial
+  // object even though most of the prose was generated.
+  const outputLimit = reasoningEffort ? 3200 : 2400;
+  if (supported.has('max_completion_tokens')) requestBody.max_completion_tokens = outputLimit;
+  else if (supported.has('max_tokens')) requestBody.max_tokens = outputLimit;
   if (structured) {
     requestBody.response_format = {
       type: 'json_schema',
@@ -176,6 +197,10 @@ export async function requestOpenRouterCompletion(args: {
       },
     };
     requestBody.provider = { require_parameters: true };
+  } else if (jsonObjectMode) {
+    // Some models support JSON-object mode but not JSON Schema. The system
+    // prompt still supplies the exact Tremiom grammar for those models.
+    requestBody.response_format = { type: 'json_object' };
   }
   const r = await fetch(CHAT_URL, {
     method: 'POST',
@@ -185,17 +210,60 @@ export async function requestOpenRouterCompletion(args: {
   });
   const body = await r.json().catch(() => ({})) as {
     model?: string;
-    choices?: Array<{ message?: { content?: string | Array<{ type?: string; text?: string }> } }>;
+    choices?: Array<{
+      finish_reason?: string;
+      native_finish_reason?: string;
+      message?: {
+        content?: string | Array<{ type?: string; text?: string }>;
+        reasoning?: string;
+      };
+    }>;
     usage?: OpenRouterCompletion['usage'];
-    error?: { message?: string; code?: number | string };
+    error?: {
+      message?: string;
+      code?: number | string;
+      metadata?: Record<string, unknown>;
+    };
+    error_type?: string;
   };
-  if (!r.ok) throw new Error(body.error?.message || `OpenRouter chat HTTP ${r.status}`);
-  const raw = body.choices?.[0]?.message?.content;
+  if (!r.ok || body.error) throw new Error(formatOpenRouterError(body, r.status));
+  const choice = body.choices?.[0];
+  const raw = choice?.message?.content;
   const content = typeof raw === 'string'
     ? raw
     : Array.isArray(raw) ? raw.map((part) => part.text || '').join('') : '';
-  if (!content) throw new Error('OpenRouter returned an empty response');
+  if (!content) {
+    const finish = choice?.finish_reason || choice?.native_finish_reason;
+    const reason = finish ? ` (finish reason: ${finish})` : '';
+    throw new Error(`OpenRouter returned no final answer${reason}. Try again or choose a lower-reasoning model.`);
+  }
+  const finish = choice?.finish_reason || choice?.native_finish_reason;
+  if (finish === 'length' || finish === 'max_tokens') {
+    throw new Error('OpenRouter truncated the AI response at its output limit. Try again or request a shorter answer.');
+  }
   return { content, model: body.model || args.model.id, usage: body.usage };
+}
+
+function formatOpenRouterError(body: {
+  error?: { message?: string; code?: number | string; metadata?: Record<string, unknown> };
+  error_type?: string;
+}, status: number): string {
+  const error = body.error;
+  const message = error?.message || `OpenRouter chat HTTP ${status}`;
+  const metadata = error?.metadata;
+  const provider = typeof metadata?.provider_name === 'string' ? metadata.provider_name : '';
+  const raw = metadata?.raw ?? metadata?.provider_error;
+  let detail = '';
+  if (typeof raw === 'string') detail = raw;
+  else if (raw && typeof raw === 'object') {
+    try { detail = JSON.stringify(raw); } catch { /* ignore malformed provider metadata */ }
+  }
+  const qualifiers = [
+    body.error_type || '',
+    provider ? `provider: ${provider}` : '',
+    detail ? detail.slice(0, 500) : '',
+  ].filter(Boolean);
+  return qualifiers.length ? `${message} (${qualifiers.join(' · ')})` : message;
 }
 
 export function responseSchemaForPrompt(): string {

@@ -198,6 +198,10 @@ export function openSettings(): void {
 
   function populateModels(models: OpenRouterModel[], selected: string): void {
     orModel.innerHTML = '';
+    const placeholder = document.createElement('option');
+    placeholder.value = '';
+    placeholder.textContent = 'Choose a text model…';
+    orModel.appendChild(placeholder);
     const byProvider = new Map<string, OpenRouterModel[]>();
     for (const model of models) {
       const provider = model.id.split('/')[0] || 'other';
@@ -221,8 +225,7 @@ export function openSettings(): void {
     if (selected && models.some((model) => model.id === selected && modelSupportsText(model))) {
       orModel.value = selected;
     } else {
-      const firstText = models.find(modelSupportsText);
-      if (firstText) orModel.value = firstText.id;
+      orModel.value = '';
     }
     setOrStatus(`${models.length} models loaded`, 'ok');
   }

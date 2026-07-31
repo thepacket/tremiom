@@ -1005,10 +1005,11 @@ async function handleEventFetch(req, res) {
     res.writeHead(400, { 'content-type': 'application/json' });
     res.end(JSON.stringify({ error: 'bad json' })); return;
   }
-  // Cache key includes the component (Z/R/T) and station count so a
-  // rotated request isn't served the vertical's cached result.
+  // Cache key includes processing as well as component/station count so a
+  // filtered request is never served an unfiltered cached record section.
+  const filterKey = JSON.stringify(payload.filter || { kind: 'none' });
   const eventId = payload.eventId
-    ? `${payload.eventId}|${payload.component || 'Z'}|${payload.nStations || 6}`
+    ? `${payload.eventId}|${payload.component || 'Z'}|${payload.nStations || 6}|${filterKey}`
     : '';
   if (eventId && eventCache.has(eventId)) {
     const c = eventCache.get(eventId);

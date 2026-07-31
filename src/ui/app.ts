@@ -156,7 +156,10 @@ export function mountApp(root: HTMLElement, version: string): void {
   const eventHost = document.createElement('div');
   eventHost.className = 'event-host hidden';
   mainArea.appendChild(eventHost);
-  const recordSection = mountRecordSection(eventHost);
+  const recordSection = mountRecordSection(eventHost, {
+    units: () => currentUnits,
+    filter: () => currentFilter,
+  });
 
   // History (waveform-browser) mode container.
   const historyHost = document.createElement('div');
@@ -441,6 +444,7 @@ export function mountApp(root: HTMLElement, version: string): void {
       high: spec.high,
     });
     historyView.refresh();
+    if (currentMode === 'event') recordSection.refreshFilter();
   }
   const filterPicker = mountFilterPicker(filterMount, currentFilter, applyFilter);
 
@@ -449,6 +453,7 @@ export function mountApp(root: HTMLElement, version: string): void {
     currentUnits = units;
     client.setUnits(currentStation, units);
     historyView.refresh();
+    if (currentMode === 'event') recordSection.refreshAnalysis();
   }
   const unitsPicker = mountUnitsPicker(unitsMount, currentUnits, applyUnits);
 
@@ -524,22 +529,29 @@ export function mountApp(root: HTMLElement, version: string): void {
   }
 
   mountAiTerminal(root, {
-    getSessionSnapshot: () => ({
-      mode: currentMode,
-      selectedStation: currentStation,
-      selectedEvent: currentEvents.find((event) => event.id === currentEventId) || null,
-      availableEvents: currentEvents,
-      availableStations: [
-        ...STATION_PRESETS.map((station) => ({ nslc: station.nslc, lat: station.lat, lon: station.lon })),
-        ...(STATION_PRESETS.some((station) => station.nslc === currentStation) || !stationCoords.has(currentStation)
-          ? []
-          : [{ nslc: currentStation, ...stationCoords.get(currentStation)! }]),
-      ],
-      visiblePlots: activePanels,
-      filter: currentFilter,
-      units: currentUnits,
-      plotFrames: dashboard.snapshotFrames(),
-    }),
+    getSessionSnapshot: () => {
+      const plots = currentMode === 'event'
+        ? recordSection.aiSnapshot()
+        : currentMode === 'history'
+          ? historyView.aiSnapshot()
+          : { visiblePlots: activePanels, plotFrames: dashboard.snapshotFrames() };
+      return {
+        mode: currentMode,
+        selectedStation: currentStation,
+        selectedEvent: currentEvents.find((event) => event.id === currentEventId) || null,
+        availableEvents: currentEvents,
+        availableStations: [
+          ...STATION_PRESETS.map((station) => ({ nslc: station.nslc, lat: station.lat, lon: station.lon })),
+          ...(STATION_PRESETS.some((station) => station.nslc === currentStation) || !stationCoords.has(currentStation)
+            ? []
+            : [{ nslc: currentStation, ...stationCoords.get(currentStation)! }]),
+        ],
+        visiblePlots: plots.visiblePlots,
+        filter: currentFilter,
+        units: currentUnits,
+        plotFrames: plots.plotFrames,
+      };
+    },
     applyInstruction: applyAiInstruction,
   });
 

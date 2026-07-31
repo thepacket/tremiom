@@ -11,6 +11,9 @@
   /* World-map header height. Tall enough that the inhabited latitude band
    * (and station markers) read clearly instead of being squished. */
   --map-h: 340px;
+  /* Respect the user's map size while preserving a usable plots viewport
+   * above an expanded AI terminal on shorter screens. */
+  --effective-map-h: min(var(--map-h), max(150px, calc(100vh - var(--topbar-h) - var(--statusbar-h) - var(--ai-terminal-h) - 126px)));
   /* Fixed bottom status bar height. */
   --statusbar-h: 24px;
   /* Docked AI terminal; changed by its collapse button and splitter. */
@@ -59,7 +62,7 @@ html, body {
 .top-region {
   display: grid;
   grid-template-columns: 280px 1fr;
-  height: var(--map-h);
+  height: var(--effective-map-h);
 }
 
 .map-host {
@@ -109,11 +112,12 @@ html, body {
 .map-tooltip .muted { color: var(--muted); }
 
 .body {
-  /* Full-width dashboard/event/history area below the top region. Grows
-   * beyond the viewport when the plot grid demands more vertical space;
-   * the document scrollbar handles the overflow. */
+  /* Keep plots independently scrollable above the docked AI terminal. */
   display: block;
-  min-height: calc(100vh - var(--topbar-h) - var(--map-h));
+  height: max(120px, calc(100vh - var(--topbar-h) - var(--effective-map-h) - 6px - var(--statusbar-h) - var(--ai-terminal-h)));
+  min-height: 120px;
+  overflow-y: auto;
+  scrollbar-gutter: stable;
 }
 
 /* display:contents so .sidebar becomes a direct grid child of .top-region
@@ -211,7 +215,7 @@ html, body {
 .history-view {
   display: grid;
   grid-template-rows: 32px minmax(0, 1fr) 320px;
-  height: calc(100vh - var(--topbar-h) - var(--map-h));
+  height: calc(100vh - var(--topbar-h) - var(--effective-map-h));
   min-height: 360px;
   background: var(--panel-bg);
 }
@@ -422,7 +426,7 @@ html, body {
    * is what the user sees. The min-height gives the event-mode
    * record-section panel a defined height (its 30 px header +
    * 1 fr body needs a parent height to size to). */
-  min-height: calc(100vh - var(--topbar-h) - var(--map-h));
+  min-height: calc(100vh - var(--topbar-h) - var(--effective-map-h));
 }
 .main-area > * { grid-area: 1 / 1 / 2 / 2; }
 .main-area .hidden { display: none !important; }
@@ -434,7 +438,7 @@ html, body {
    * gives the grid a definite size so the 1fr body + fixed panel row
    * resolve instead of the canvas blowing up the layout. */
   grid-template-rows: 30px minmax(0, 1fr) 320px;
-  height: calc(100vh - var(--topbar-h) - var(--map-h));
+  height: calc(100vh - var(--topbar-h) - var(--effective-map-h));
   min-height: 360px;
   background: var(--panel-bg);
   overflow: hidden;
@@ -757,6 +761,7 @@ html, body {
 .ai-collapse { color: var(--accent); font-size: 16px; line-height: 1; }
 .ai-terminal-tool:hover,
 .ai-collapse:hover { color: var(--fg); border-color: var(--panel-border); }
+.ai-terminal-tool:disabled { opacity: 0.4; cursor: default; border-color: transparent; }
 .ai-transcript {
   min-height: 0;
   overflow-y: auto;
@@ -840,6 +845,19 @@ html, body {
 .ai-message-body a { color: #67b7ff; }
 .ai-math-block { overflow-x: auto; padding: 6px 0; }
 .ai-math-inline { display: inline-block; }
+.ai-png-stage {
+  position: fixed;
+  left: -100000px;
+  top: 0;
+  z-index: -1;
+  width: 1100px;
+  padding: 24px;
+  overflow: visible;
+  background: #0b0d0e;
+  color: var(--fg);
+  font-size: 13px;
+  line-height: 1.5;
+}
 .ai-usage {
   max-width: 1100px;
   width: 100%;
@@ -1177,6 +1195,7 @@ html, body {
   /* Force a single panel column on phones regardless of the "Per row" field. */
   .panel-grid, .analysis-panels { grid-template-columns: 1fr; }
   .dash-host { padding: 4px; }
+  .body { height: auto; min-height: 0; overflow-y: visible; scrollbar-gutter: auto; }
 
   /* Modals go near-fullscreen so the search / settings forms are usable. */
   .modal { width: 96vw; max-height: 90vh; }

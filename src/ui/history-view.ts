@@ -35,6 +35,7 @@ export interface HistoryHandle {
   hide(): void;
   /** Re-fetch (e.g. station/units/filter changed while visible). */
   refresh(): void;
+  aiSnapshot(): { visiblePlots: string[]; plotFrames: Record<string, unknown> };
 }
 
 export function mountHistoryView(parent: HTMLElement, deps: HistoryDeps): HistoryHandle {
@@ -362,6 +363,19 @@ export function mountHistoryView(parent: HTMLElement, deps: HistoryDeps): Histor
     },
     hide() { visible = false; root.classList.add('hidden'); },
     refresh() { if (visible && !localMode) scheduleFetch(); },
+    aiSnapshot() {
+      const analysis = analysisPanels.snapshotFrames();
+      return {
+        visiblePlots: [
+          ...(resp ? ['history-waveform'] : []),
+          ...Object.keys(analysis),
+        ],
+        plotFrames: {
+          ...(resp ? { 'history-waveform': resp } : {}),
+          ...analysis,
+        },
+      };
+    },
   };
 }
 

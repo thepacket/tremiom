@@ -87,7 +87,8 @@ them is the maintainer's.
 
 ### Event-analysis mode (click any event)
 - **Record section** — N nearest stations stacked by epicentral distance,
-  **TauP** (iasp91) predicted P (yellow) / S (red) arrivals, origin line.
+  **TauP** (iasp91) predicted P (yellow) / S (red) arrivals, origin line;
+  the active filter is applied before transport decimation.
 - **Z / R / T rotation** — rotate horizontals to radial/transverse.
 - **Focal-mechanism beachball** from the USGS moment tensor.
 - **Independent magnitudes** — ML (Wood-Anderson) and Md (coda duration).
@@ -121,6 +122,10 @@ them is the maintainer's.
 - A collapsible, vertically resizable terminal is docked below the plots.
 - Selectable, seismology-focused example prompts populate the composer for
   review or editing before anything is sent.
+- A one-click Copy action copies the latest completed prompt and AI reply,
+  preserving the reply's Markdown and LaTeX source.
+- A separate Copy PNG action copies the fully rendered latest AI reply,
+  including Markdown tables and LaTeX equations, as a clipboard image.
 - Uses the model selected from OpenRouter's live model catalog. The API key
   and model live only in the current tab's `sessionStorage`; requests go
   directly from the browser to OpenRouter and never through Tremiom's server.

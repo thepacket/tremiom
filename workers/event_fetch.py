@@ -112,6 +112,7 @@ def fetch_station(
     event_lon: float,
     win_start,
     win_end,
+    filter_spec: dict[str, Any],
 ) -> tuple[dict[str, Any] | None, dict[str, str] | None]:
     """Fetch and prepare one station.
 
@@ -176,6 +177,27 @@ def fetch_station(
                 return None, {"nslc": nslc, "error": "empty stream"}
             trace = st[0]
 
+        # Filter at the original sample rate, before transport decimation.
+        # Filtering the decimated response in the browser would alias useful
+        # passbands and can make the requested high corner exceed Nyquist.
+        kind = filter_spec.get("kind", "none")
+        if kind != "none":
+            nyquist = float(trace.stats.sampling_rate) / 2.0
+            if kind == "bandpass":
+                low = max(1e-3, float(filter_spec.get("low", 0)))
+                high = min(nyquist * 0.999, float(filter_spec.get("high", nyquist)))
+                if low < high:
+                    trace.filter("bandpass", freqmin=low, freqmax=high,
+                                 corners=4, zerophase=True)
+            elif kind == "highpass":
+                low = max(1e-3, float(filter_spec.get("low", 0)))
+                if low < nyquist:
+                    trace.filter("highpass", freq=low, corners=4, zerophase=True)
+            elif kind == "lowpass":
+                high = min(nyquist * 0.999, float(filter_spec.get("high", nyquist)))
+                if high > 0:
+                    trace.filter("lowpass", freq=high, corners=4, zerophase=True)
+
         # Decimate to ~2000 points max for transport.
         target = 2000
         sample_count = len(trace.data)
@@ -207,6 +229,7 @@ def main() -> None:
     n_stations = int(req.get("nStations") or 6)
     win = req.get("windowSecs") or [-60, 600]
     component = (req.get("component") or "Z").upper()  # Z | R | T
+    filter_spec = req.get("filter") or {"kind": "none"}
     if lat is None or lon is None or time_ms is None:
         fail("missing lat/lon/timeMs")
 
@@ -252,7 +275,8 @@ def main() -> None:
     with ThreadPoolExecutor(max_workers=max_workers) as executor:
         results = list(executor.map(
             lambda station: fetch_station(
-                fdsn, station, component, lat, lon, win_start, win_end
+                fdsn, station, component, lat, lon, win_start, win_end,
+                filter_spec
             ),
             chosen,
         ))
@@ -296,6 +320,7 @@ def main() -> None:
         "lat": lat, "lon": lon,
         "windowSecs": [pre, post],
         "component": component,
+        "processing": {"units": "counts", "filter": filter_spec},
         "stations": out_stations,
         "errors": errors,
     }

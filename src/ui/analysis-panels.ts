@@ -43,6 +43,7 @@ const PANELS: Array<{ id: string; label: string }> = [
 export interface AnalysisPanelsHandle {
   update(opts: AnalysisUpdate): void;
   clear(): void;
+  snapshotFrames(): Record<string, unknown>;
 }
 
 export function mountAnalysisPanels(parent: HTMLElement): AnalysisPanelsHandle {
@@ -184,7 +185,13 @@ export function mountAnalysisPanels(parent: HTMLElement): AnalysisPanelsHandle {
     for (const p of PANELS) placeholder(p.id, '—');
   }
 
-  return { update, clear };
+  return {
+    update,
+    clear,
+    snapshotFrames: () => Object.fromEntries(
+      Object.entries(lastFrames).map(([id, frame]) => [id, { ...frame, station: lastNslc }]),
+    ),
+  };
 }
 
 /** Static spectrogram heatmap (oldest→newest columns left→right). Mirrors
