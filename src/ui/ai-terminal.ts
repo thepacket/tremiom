@@ -304,12 +304,15 @@ export function mountAiTerminal(parent: HTMLElement, deps: TerminalDeps): void {
     const original = copyPng.textContent;
     copyPng.disabled = true;
     copyPng.textContent = 'Rendering…';
+    copyPng.dataset.status = 'rendering';
     void copyMarkdownPngToClipboard(lastExchange.reply)
       .then(() => {
+        copyPng.dataset.status = 'copied';
         copyPng.textContent = 'PNG copied';
         window.setTimeout(() => { copyPng.textContent = original; }, 1400);
       })
       .catch((error) => {
+        copyPng.dataset.status = 'error';
         copyPng.textContent = original;
         appendMessage('error', (error as Error).message);
       })
@@ -381,16 +384,17 @@ async function copyMarkdownPngToClipboard(markdown: string): Promise<void> {
   await navigator.clipboard.write([new ClipboardItem({ 'image/png': blob })]);
 }
 
-/** Render the fully formatted Markdown/KaTeX reply through an SVG foreign
- * object, then rasterize it. Computed styles are inlined so the clipboard
- * image keeps Tremiom's table, code, and math appearance. */
+/** Render the fully formatted Markdown/KaTeX reply with html2canvas. Its
+ * DOM renderer avoids the browser's tainted SVG foreign-object path. */
 async function renderMarkdownPng(markdown: string): Promise<Blob> {
   const { renderAiMarkdown } = await import('../ai/markdown');
+  const { default: html2canvas } = await import('html2canvas');
   const stage = document.createElement('div');
   stage.className = 'ai-message-body ai-png-stage';
   stage.replaceChildren(renderAiMarkdown(markdown));
   document.body.appendChild(stage);
   try {
+    await inlineReplyImages(stage);
     await document.fonts?.ready;
     await nextAnimationFrame();
 
@@ -403,56 +407,47 @@ async function renderMarkdownPng(markdown: string): Promise<Blob> {
     if (!height || height > 30_000) {
       throw new Error('The AI reply is too tall to copy as one PNG image.');
     }
-
-    const clone = stage.cloneNode(true) as HTMLElement;
-    inlineComputedStyles(stage, clone);
-    clone.setAttribute('xmlns', 'http://www.w3.org/1999/xhtml');
-    clone.style.position = 'static';
-    clone.style.left = 'auto';
-    clone.style.top = 'auto';
-    clone.style.width = `${width}px`;
-    clone.style.height = `${height}px`;
-    clone.style.overflow = 'hidden';
-
-    const serialized = new XMLSerializer().serializeToString(clone);
-    const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="${width}" height="${height}" viewBox="0 0 ${width} ${height}"><foreignObject width="100%" height="100%">${serialized}</foreignObject></svg>`;
-    const url = URL.createObjectURL(new Blob([svg], { type: 'image/svg+xml;charset=utf-8' }));
-    try {
-      const image = new Image();
-      image.src = url;
-      await image.decode();
-      const sourcePixels = width * height;
-      const scale = Math.max(1, Math.min(2, Math.sqrt(24_000_000 / sourcePixels)));
-      const canvas = document.createElement('canvas');
-      canvas.width = Math.ceil(width * scale);
-      canvas.height = Math.ceil(height * scale);
-      const context = canvas.getContext('2d');
-      if (!context) throw new Error('Could not create the PNG drawing surface.');
-      context.scale(scale, scale);
-      context.drawImage(image, 0, 0, width, height);
-      return await canvasPngBlob(canvas);
-    } finally {
-      URL.revokeObjectURL(url);
-    }
+    const sourcePixels = width * height;
+    const scale = Math.max(1, Math.min(2, Math.sqrt(24_000_000 / sourcePixels)));
+    const canvas = await html2canvas(stage, {
+      allowTaint: false,
+      backgroundColor: '#0b0d0e',
+      foreignObjectRendering: false,
+      height,
+      logging: false,
+      scale,
+      useCORS: true,
+      width,
+      windowHeight: height,
+      windowWidth: width,
+    });
+    return await canvasPngBlob(canvas);
   } finally {
     stage.remove();
   }
 }
 
-function inlineComputedStyles(source: HTMLElement, target: HTMLElement): void {
-  const computed = getComputedStyle(source);
-  for (const property of computed) {
-    target.style.setProperty(property, computed.getPropertyValue(property), computed.getPropertyPriority(property));
-  }
-  const sourceChildren = source.children;
-  const targetChildren = target.children;
-  for (let i = 0; i < sourceChildren.length; i++) {
-    const sourceChild = sourceChildren[i];
-    const targetChild = targetChildren[i];
-    if (sourceChild instanceof HTMLElement && targetChild instanceof HTMLElement) {
-      inlineComputedStyles(sourceChild, targetChild);
+async function inlineReplyImages(root: HTMLElement): Promise<void> {
+  await Promise.all([...root.querySelectorAll<HTMLImageElement>('img')].map(async (image) => {
+    try {
+      const response = await fetch(image.currentSrc || image.src);
+      if (!response.ok) throw new Error(`image HTTP ${response.status}`);
+      image.src = await blobDataUrl(await response.blob());
+    } catch {
+      const fallback = document.createElement('span');
+      fallback.textContent = image.alt ? `[Image: ${image.alt}]` : '[Image omitted]';
+      image.replaceWith(fallback);
     }
-  }
+  }));
+}
+
+function blobDataUrl(blob: Blob): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.addEventListener('load', () => resolve(String(reader.result)));
+    reader.addEventListener('error', () => reject(reader.error || new Error('Could not inline image data.')));
+    reader.readAsDataURL(blob);
+  });
 }
 
 function nextAnimationFrame(): Promise<void> {

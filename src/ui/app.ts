@@ -96,9 +96,18 @@ export function mountApp(root: HTMLElement, version: string): void {
   mountMapSplitter(splitter, mapHost);
 
   // ── Body (sidebar + dashboard) ──────────────────────────────────────
+  const plotScrollShell = document.createElement('div');
+  plotScrollShell.className = 'plot-scroll-shell';
+  root.appendChild(plotScrollShell);
   const body = document.createElement('div');
   body.className = 'body';
-  root.appendChild(body);
+  plotScrollShell.appendChild(body);
+  const plotScrollRail = document.createElement('div');
+  plotScrollRail.className = 'plot-scroll-rail';
+  plotScrollRail.setAttribute('aria-hidden', 'true');
+  plotScrollRail.innerHTML = '<div class="plot-scroll-thumb"></div>';
+  plotScrollShell.appendChild(plotScrollRail);
+  mountPlotScrollbar(body, plotScrollRail);
 
   // ── Status bar (fixed at the bottom; connection status centered) ────
   const statusBar = document.createElement('div');
@@ -595,4 +604,70 @@ function mountMapSplitter(splitter: HTMLElement, mapHost: HTMLElement): void {
   };
   splitter.addEventListener('pointerup', end);
   splitter.addEventListener('pointercancel', end);
+}
+
+/** Always-visible plots scrollbar. macOS hides native overlay scrollbars even
+ * when CSS requests a gutter, so use a synchronized rail that is also
+ * draggable and clickable. */
+function mountPlotScrollbar(viewport: HTMLElement, rail: HTMLElement): void {
+  const thumb = rail.querySelector('.plot-scroll-thumb') as HTMLElement;
+  let thumbHeight = 28;
+  let updateFrame = 0;
+
+  const update = () => {
+    updateFrame = 0;
+    const visible = viewport.clientHeight;
+    const total = viewport.scrollHeight;
+    const track = rail.clientHeight;
+    const scrollable = total > visible + 1 && track > 0;
+    rail.classList.toggle('inactive', !scrollable);
+    if (!scrollable) {
+      thumb.style.height = `${track}px`;
+      thumb.style.transform = 'translateY(0)';
+      return;
+    }
+    thumbHeight = Math.max(28, Math.round(track * visible / total));
+    const travel = Math.max(0, track - thumbHeight);
+    const progress = viewport.scrollTop / Math.max(1, total - visible);
+    thumb.style.height = `${thumbHeight}px`;
+    thumb.style.transform = `translateY(${Math.round(travel * progress)}px)`;
+  };
+  const scheduleUpdate = () => {
+    if (!updateFrame) updateFrame = requestAnimationFrame(update);
+  };
+
+  viewport.addEventListener('scroll', scheduleUpdate, { passive: true });
+  new ResizeObserver(scheduleUpdate).observe(viewport);
+  new MutationObserver(scheduleUpdate).observe(viewport, { childList: true, subtree: true });
+  window.addEventListener('resize', scheduleUpdate);
+
+  let dragging = false, startY = 0, startScroll = 0;
+  thumb.addEventListener('pointerdown', (event) => {
+    if (rail.classList.contains('inactive')) return;
+    dragging = true;
+    startY = event.clientY;
+    startScroll = viewport.scrollTop;
+    thumb.setPointerCapture(event.pointerId);
+    event.preventDefault();
+  });
+  thumb.addEventListener('pointermove', (event) => {
+    if (!dragging) return;
+    const travel = Math.max(1, rail.clientHeight - thumbHeight);
+    const scrollRange = Math.max(0, viewport.scrollHeight - viewport.clientHeight);
+    viewport.scrollTop = startScroll + (event.clientY - startY) * scrollRange / travel;
+  });
+  const stopDragging = (event: PointerEvent) => {
+    if (!dragging) return;
+    dragging = false;
+    try { thumb.releasePointerCapture(event.pointerId); } catch { /* not captured */ }
+  };
+  thumb.addEventListener('pointerup', stopDragging);
+  thumb.addEventListener('pointercancel', stopDragging);
+  rail.addEventListener('pointerdown', (event) => {
+    if (event.target === thumb || rail.classList.contains('inactive')) return;
+    const rect = rail.getBoundingClientRect();
+    const ratio = (event.clientY - rect.top) / Math.max(1, rect.height);
+    viewport.scrollTop = ratio * Math.max(0, viewport.scrollHeight - viewport.clientHeight);
+  });
+  scheduleUpdate();
 }

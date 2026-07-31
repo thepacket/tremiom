@@ -1,7 +1,7 @@
 {
   "name": "tremiom",
   "private": true,
-  "version": "0.8.13",
+  "version": "0.8.16",
   "license": "MIT",
   "type": "module",
   "scripts": {
@@ -16,6 +16,7 @@
   },
   "dependencies": {
     "dompurify": "^3.4.12",
+    "html2canvas": "^1.4.1",
     "katex": "^0.16.47",
     "marked": "^16.4.2",
     "ws": "^8.20.0"
