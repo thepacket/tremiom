@@ -1,7 +1,7 @@
 {
   "name": "tremiom",
   "private": true,
-  "version": "0.8.16",
+  "version": "0.8.17",
   "license": "MIT",
   "type": "module",
   "scripts": {
@@ -10,6 +10,8 @@
     "build": "tsc -b && vite build",
     "preview": "vite preview",
     "start": "node server.mjs",
+    "backend": "TREMIOM_PYTHON=workers/.venv/bin/python TREMIOM_SYNTHETIC=1 PORT=8080 node server.mjs",
+    "backend:live": "TREMIOM_PYTHON=workers/.venv/bin/python PORT=8080 node server.mjs",
     "workers:install": "python3 -m venv workers/.venv && workers/.venv/bin/pip install -r workers/requirements.txt",
     "worker": "workers/.venv/bin/python workers/worker.py",
     "worker:synthetic": "workers/.venv/bin/python workers/worker.py --synthetic"

@@ -6,6 +6,12 @@
       "runtimeExecutable": "npx",
       "runtimeArgs": ["vite", "--port", "5174", "--strictPort"],
       "port": 5174
+    },
+    {
+      "name": "tremiom-backend",
+      "runtimeExecutable": "npm",
+      "runtimeArgs": ["run", "backend:live"],
+      "port": 8080
     }
   ]
 }

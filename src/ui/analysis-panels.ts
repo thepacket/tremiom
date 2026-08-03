@@ -134,7 +134,8 @@ export function mountAnalysisPanels(parent: HTMLElement): AnalysisPanelsHandle {
       case 'three-comp':      threeComp.render(c.ctx, c.canvas, tagged); break;
       case 'particle-motion': particleMotion.render(c.ctx, c.canvas, tagged); break;
       case 'hv':              hv.render(c.ctx, c.canvas, fr); break;
-      case 'spectrogram':     drawSpectrogram(c.ctx, c.canvas, fr as { fMinHz: number; fMaxHz: number; columns: number[][] }); break;
+      case 'spectrogram':     drawSpectrogram(c.ctx, c.canvas, fr as { fMinHz: number; fMaxHz: number; columns: number[][] },
+                                lastOpts ? { startMs: lastOpts.startMs, durS: lastOpts.durS } : null); break;
     }
   }
 
@@ -201,12 +202,37 @@ export function mountAnalysisPanels(parent: HTMLElement): AnalysisPanelsHandle {
   };
 }
 
+/** Tick steps for an absolute UTC time axis, in seconds. */
+const TIME_STEPS_S = [
+  1, 2, 5, 10, 15, 30,
+  60, 120, 300, 600, 900, 1800,
+  3600, 7200, 10800, 21600, 43200, 86400,
+];
+
+/** Smallest ladder step that keeps the axis at or under `target` ticks. */
+function timeStepS(totalS: number, target: number): number {
+  for (const s of TIME_STEPS_S) if (totalS / s <= target) return s;
+  return TIME_STEPS_S[TIME_STEPS_S.length - 1];
+}
+
+function fmtUtcTick(ms: number, stepS: number): string {
+  const d = new Date(ms);
+  const hh = d.getUTCHours().toString().padStart(2, '0');
+  const mm = d.getUTCMinutes().toString().padStart(2, '0');
+  if (stepS < 60) return `${hh}:${mm}:${d.getUTCSeconds().toString().padStart(2, '0')}`;
+  if (stepS < 86400) return `${hh}:${mm}`;
+  return `${(d.getUTCMonth() + 1).toString().padStart(2, '0')}-${d.getUTCDate().toString().padStart(2, '0')}`;
+}
+
 /** Static spectrogram heatmap (oldest→newest columns left→right). Mirrors
- *  the live panel's viridis + auto-contrast, but draws all columns at once. */
+ *  the live panel's viridis + auto-contrast, but draws all columns at once.
+ *  Columns span the fetched window uniformly (the worker max-bins them to a
+ *  fixed count), so `win` maps column position → absolute UTC for the x-axis. */
 function drawSpectrogram(
   ctx: CanvasRenderingContext2D,
   canvas: HTMLCanvasElement,
   fr: { fMinHz: number; fMaxHz: number; columns: number[][] } | undefined,
+  win: { startMs: number; durS: number } | null,
 ): void {
   const w = canvas.clientWidth, h = canvas.clientHeight;
   ctx.fillStyle = '#0d0d0d'; ctx.fillRect(0, 0, w, h);
@@ -244,10 +270,34 @@ function drawSpectrogram(
     ctx.fillText(`${v}`, pb.left - Y_TICK_LABEL_RIGHT_OFFSET, y);
   }
   drawYCaption(ctx, h, 'Hz');
+
+  // X axis: absolute UTC ticks across the fetched window. Ticks land on round
+  // UTC boundaries (multiples of the step from the epoch), not on startMs.
+  ctx.textAlign = 'center'; ctx.textBaseline = 'top';
+  if (win && win.durS > 0) {
+    const stepS = timeStepS(win.durS, pb.width < 400 ? 5 : 7);
+    const stepMs = stepS * 1000;
+    const endMs = win.startMs + win.durS * 1000;
+    for (let t = Math.ceil(win.startMs / stepMs) * stepMs; t <= endMs + 1e-6; t += stepMs) {
+      const x = pb.left + ((t - win.startMs) / (win.durS * 1000)) * pb.width;
+      // Labels only, no gridlines — matching the live spectrogram panel, and
+      // gridlines would wash out the heatmap they cross.
+      const label = fmtUtcTick(t, stepS);
+      // Skip labels that would run off the canvas rather than shifting them
+      // off their tick.
+      const half = ctx.measureText(label).width / 2;
+      if (x - half < 0 || x + half > w) continue;
+      ctx.fillStyle = COLOR_LABEL;
+      ctx.fillText(label, x, pb.bottom + 2);
+    }
+  } else {
+    ctx.textAlign = 'left';
+    ctx.fillStyle = COLOR_LABEL;
+    ctx.fillText('time →', pb.left + 2, pb.bottom + 2);
+  }
+
   drawFrame(ctx, w, h);
 
   ctx.fillStyle = '#cfd2d4'; ctx.textAlign = 'right'; ctx.textBaseline = 'top';
   ctx.fillText(`${dbMin.toFixed(0)} … ${dbMax.toFixed(0)} dB`, pb.right - 4, pb.top + 2);
-  ctx.textAlign = 'left';
-  ctx.fillText('time →', pb.left + 2, pb.top + 2);
 }
